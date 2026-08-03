@@ -33,6 +33,7 @@
 
   async function init() {
     bindEvents();
+    setupAutoHideNavigation();
     setDefaultDates();
 
     const config = /** @type {{ SUPABASE_URL?: string, SUPABASE_ANON_KEY?: string }} */ (window.APP_CONFIG || {});
@@ -1059,6 +1060,54 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     return ({ food: "Food", cleaning: "Cleaning supplies", household: "Household", other: "Other" })[value] || "Other";
   }
 
+
+  let navHideTimer = null;
+
+  function setNavigationCollapsed(collapsed) {
+    const nav = $(".bottom-nav");
+    const toggle = $("#nav-toggle");
+    if (!nav || !toggle) return;
+    nav.classList.toggle("nav-collapsed", collapsed);
+    toggle.classList.toggle("nav-collapsed", collapsed);
+    toggle.textContent = collapsed ? "⌃" : "⌄";
+    toggle.setAttribute("aria-label", collapsed ? "Show navigation" : "Hide navigation");
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+  }
+
+  function scheduleNavigationHide(delay = 3500) {
+    window.clearTimeout(navHideTimer);
+    navHideTimer = window.setTimeout(() => setNavigationCollapsed(true), delay);
+  }
+
+  function setupAutoHideNavigation() {
+    const nav = $(".bottom-nav");
+    const toggle = $("#nav-toggle");
+    if (!nav || !toggle) return;
+
+    toggle.addEventListener("click", () => {
+      const isCollapsed = nav.classList.contains("nav-collapsed");
+      setNavigationCollapsed(!isCollapsed);
+      if (isCollapsed) scheduleNavigationHide(5000);
+      else window.clearTimeout(navHideTimer);
+    });
+
+    nav.addEventListener("pointerdown", () => window.clearTimeout(navHideTimer));
+    nav.addEventListener("pointerup", () => scheduleNavigationHide(2500));
+
+    let lastY = window.scrollY;
+    window.addEventListener("scroll", () => {
+      const currentY = window.scrollY;
+      if (currentY > lastY + 8) setNavigationCollapsed(true);
+      else if (currentY < lastY - 12) {
+        setNavigationCollapsed(false);
+        scheduleNavigationHide();
+      }
+      lastY = currentY;
+    }, { passive: true });
+
+    scheduleNavigationHide(4500);
+  }
+
   function normalizeItemName(value) {
     return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
   }
@@ -1081,6 +1130,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     $("#page-title").textContent = titles[page] || "Household Hub";
     $("#topbar-add").classList.toggle("hidden", page !== "dashboard" && page !== "purchases");
     window.scrollTo({ top: 0, behavior: "smooth" });
+    scheduleNavigationHide(1800);
   }
 
   function showOnly(id) {
