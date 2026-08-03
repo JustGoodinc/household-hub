@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f7f3ea">
-  <meta name="description" content="A private shared household purchase tracker, recipe book, and five-day meal planner.">
+  <meta name="description" content="A private shared household purchase tracker, recipe book, and six-meal planner.">
   <title>Our Household Hub</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -28,7 +28,7 @@
       <div class="brand-mark" aria-hidden="true">⌂</div>
       <p class="eyebrow">Shared home organizer</p>
       <h1>Our Household Hub</h1>
-      <p class="muted">Track purchases, save recipes, and plan five dinners together.</p>
+      <p class="muted">Track purchases, save recipes, and plan six dinners together.</p>
 
       <div class="segmented" role="tablist" aria-label="Account action">
         <button id="show-signin" class="segment active" type="button">Sign in</button>
@@ -297,10 +297,10 @@
         <section class="section-card planner-hero">
           <div>
             <p class="eyebrow">Dinner made easier</p>
-            <h2>Five-day meal planner</h2>
-            <p class="muted">Five different meals are chosen only from recipes you have enabled. Cooking assignments stay balanced whenever possible.</p>
+            <h2>Six-meal planner</h2>
+            <p class="muted">Six different meals are chosen only from recipes you have enabled. Cooking assignments stay balanced whenever possible.</p>
           </div>
-          <button id="generate-meals" class="primary-button" type="button">Randomize 5 meals</button>
+          <button id="generate-meals" class="primary-button" type="button">Randomize 6 meals</button>
         </section>
 
         <section class="section-card">
@@ -324,7 +324,89 @@
             </div>
             <button id="next-week" class="icon-button subtle" type="button" aria-label="Next week">›</button>
           </div>
-          <div id="meal-plan-list" class="meal-plan-list empty-state">Add at least five recipes, then randomize your week.</div>
+          <div id="meal-plan-list" class="meal-plan-list empty-state">Add at least six recipes, then randomize your meal plan.</div>
+        </section>
+      </section>
+
+      <section id="page-grocery" class="page" data-page="grocery">
+        <section class="section-card form-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Shopping checklist</p>
+              <h2>Add grocery item</h2>
+            </div>
+          </div>
+          <form id="grocery-form" class="responsive-form">
+            <label class="full-width">Item name
+              <input id="grocery-name" type="text" maxlength="120" required placeholder="Milk, paper towels, dish soap...">
+            </label>
+            <label>Category
+              <select id="grocery-category" required>
+                <option value="food">Food</option>
+                <option value="cleaning">Cleaning supplies</option>
+                <option value="household">Household</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>Quantity
+              <input id="grocery-quantity" type="text" maxlength="40" placeholder="1, 2 boxes, 3 lb">
+            </label>
+            <label>Estimated price <span class="optional">Optional</span>
+              <div class="money-input"><span>$</span><input id="grocery-estimate" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+            </label>
+            <div class="form-actions full-width">
+              <button class="primary-button" type="submit">Add to list</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="section-card grocery-budget-card">
+          <div class="section-heading wrap-heading">
+            <div>
+              <p class="eyebrow">Shopping budget</p>
+              <h2>Current list totals</h2>
+            </div>
+            <label class="budget-input-label">Budget
+              <div class="money-input compact-money"><span>$</span><input id="grocery-budget" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+            </label>
+          </div>
+          <div class="grocery-summary-grid">
+            <article><span>Estimated</span><strong id="grocery-estimated-total">$0.00</strong></article>
+            <article><span>Collected</span><strong id="grocery-actual-total">$0.00</strong></article>
+            <article><span>Remaining</span><strong id="grocery-remaining-total">$0.00</strong></article>
+            <article><span>Budget left</span><strong id="grocery-budget-left">—</strong></article>
+          </div>
+          <p id="grocery-sale-summary" class="muted small">0 sale items collected</p>
+        </section>
+
+        <section class="section-card">
+          <div class="section-heading wrap-heading">
+            <div>
+              <p class="eyebrow">Dinner ingredients</p>
+              <h2>Add this week’s ingredients</h2>
+              <p class="muted small">Ingredients from the six saved dinners will be added as food items. Existing unchecked items with the same name are skipped.</p>
+            </div>
+            <button id="add-plan-ingredients" class="secondary-button" type="button">Add meal ingredients</button>
+          </div>
+          <p id="ingredient-import-message" class="form-message"></p>
+        </section>
+
+        <section class="section-card">
+          <div class="section-heading wrap-heading">
+            <div>
+              <p class="eyebrow">Checklist</p>
+              <h2>Grocery list</h2>
+            </div>
+            <div class="grocery-list-actions">
+              <select id="grocery-filter" aria-label="Filter grocery list">
+                <option value="all">All items</option>
+                <option value="needed">Still needed</option>
+                <option value="collected">Collected</option>
+              </select>
+              <button id="clear-collected" class="text-button" type="button">Clear collected</button>
+            </div>
+          </div>
+          <div id="grocery-list" class="grocery-list empty-state">No grocery items yet.</div>
         </section>
       </section>
 
@@ -363,6 +445,7 @@
       <button class="nav-button" type="button" data-target="purchases"><span>▤</span><small>Purchases</small></button>
       <button class="nav-button" type="button" data-target="recipes"><span>⌑</span><small>Recipes</small></button>
       <button class="nav-button" type="button" data-target="planner"><span>▦</span><small>Meals</small></button>
+      <button class="nav-button" type="button" data-target="grocery"><span>✓</span><small>Grocery</small></button>
       <button class="nav-button" type="button" data-target="settings"><span>⚙</span><small>Settings</small></button>
     </nav>
   </div>

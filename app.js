@@ -6,7 +6,7 @@
     gas: { label: "Gas", icon: "⛽" },
     utilities: { label: "Utilities", icon: "💡" }
   };
-  const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+  const DAY_NAMES = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"];
 
   const state = {
     client: null,
@@ -17,6 +17,8 @@
     members: [],
     purchases: [],
     recipes: [],
+    groceryItems: [],
+    groceryBudget: null,
     plan: [],
     currentPlan: [],
     currentWeekStart: getMondayISO(new Date()),
@@ -106,6 +108,13 @@
     $("#next-week").addEventListener("click", () => changeWeek(7));
     $("#meal-plan-list").addEventListener("click", handleMealAction);
 
+    $("#grocery-form").addEventListener("submit", saveGroceryItem);
+    $("#grocery-list").addEventListener("click", handleGroceryAction);
+    $("#grocery-filter").addEventListener("change", renderGroceryList);
+    $("#grocery-budget").addEventListener("change", saveGroceryBudget);
+    $("#add-plan-ingredients").addEventListener("click", addPlanIngredientsToGrocery);
+    $("#clear-collected").addEventListener("click", clearCollectedGroceryItems);
+
     $("#copy-invite-code").addEventListener("click", copyInviteCode);
   }
 
@@ -133,6 +142,8 @@
     state.members = [];
     state.purchases = [];
     state.recipes = [];
+    state.groceryItems = [];
+    state.groceryBudget = null;
     state.plan = [];
     state.currentPlan = [];
   }
@@ -171,7 +182,7 @@
   }
 
   async function loadAllData() {
-    await Promise.all([loadMembers(), loadPurchases(), loadRecipes()]);
+    await Promise.all([loadMembers(), loadPurchases(), loadRecipes(), loadGroceryItems(), loadGroceryBudget()]);
     await loadPlan(state.currentWeekStart);
     renderAll();
   }
@@ -207,6 +218,27 @@
     state.recipes = data || [];
   }
 
+  async function loadGroceryItems() {
+    const { data, error } = await state.client
+      .from("grocery_items")
+      .select("*")
+      .eq("household_id", state.household.id)
+      .order("is_collected", { ascending: true })
+      .order("created_at", { ascending: false });
+    if (error) throwAndToast(error);
+    state.groceryItems = data || [];
+  }
+
+  async function loadGroceryBudget() {
+    const { data, error } = await state.client
+      .from("grocery_budgets")
+      .select("amount")
+      .eq("household_id", state.household.id)
+      .maybeSingle();
+    if (error) throwAndToast(error);
+    state.groceryBudget = data?.amount == null ? null : Number(data.amount);
+  }
+
   async function loadPlan(weekStart) {
     const { data, error } = await state.client
       .from("meal_plans")
@@ -238,6 +270,8 @@
     renderRecipes();
     renderPlannerRecipeToggles();
     renderMealPlan();
+    renderGroceryList();
+    renderGrocerySummary();
     renderMembers();
   }
 
@@ -432,14 +466,14 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       const enabledCount = state.recipes.filter(isRecipeEnabled).length;
       container.textContent = enabledCount < 5
         ? `Enable ${5 - enabledCount} more meal${5 - enabledCount === 1 ? "" : "s"}, then randomize your week.`
-        : "No meals saved for this week. Press Randomize 5 meals.";
+        : "No meals saved for this week. Press Randomize 6 meals.";
       return;
     }
 
     container.className = "meal-plan-list";
     container.innerHTML = state.plan.map((item) => `
       <article class="meal-card">
-        <span class="day-badge">${DAY_NAMES[item.day_index].slice(0, 3)}</span>
+        <span class="day-badge">${DAY_NAMES[item.day_index]}</span>
         <div>
           <h3>${escapeHTML(item.recipe?.name || "Deleted recipe")}</h3>
           <p>${escapeHTML(item.assigned_cook)} cooks</p>
@@ -778,13 +812,13 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   async function generateMealPlan() {
     const enabledRecipes = state.recipes.filter(isRecipeEnabled);
-    if (enabledRecipes.length < 5) {
-      return showToast(`Enable at least five meals first. You currently have ${enabledRecipes.length} enabled.`, true);
+    if (enabledRecipes.length < 6) {
+      return showToast(`Enable at least six meals first. You currently have ${enabledRecipes.length} enabled.`, true);
     }
     const button = $("#generate-meals");
     setBusy(button, true, "Choosing meals...");
 
-    const chosen = shuffle([...enabledRecipes]).slice(0, 5);
+    const chosen = shuffle([...enabledRecipes]).slice(0, 6);
     const cookCounts = { Kate: 0, Oscar: 0 };
     const rows = chosen.map((recipe, dayIndex) => ({
       household_id: state.household.id,
@@ -865,6 +899,170 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     return selected;
   }
 
+  async function saveGroceryItem(event) {
+    event.preventDefault();
+    const button = event.submitter;
+    const name = $("#grocery-name").value.trim();
+    if (!name) return showToast("Enter an item name.", true);
+    setBusy(button, true, "Adding...");
+    const estimateValue = $("#grocery-estimate").value;
+    const payload = {
+      household_id: state.household.id,
+      created_by: state.user.id,
+      name,
+      category: $("#grocery-category").value,
+      quantity: nullIfEmpty($("#grocery-quantity").value),
+      estimated_price: estimateValue === "" ? null : Number(estimateValue),
+      source: "manual"
+    };
+    const { error } = await state.client.from("grocery_items").insert(payload);
+    setBusy(button, false);
+    if (error) return showToast(error.message, true);
+    event.target.reset();
+    $("#grocery-category").value = "food";
+    await loadGroceryItems();
+    renderGroceryList();
+    renderGrocerySummary();
+    showToast("Item added to the grocery list.");
+  }
+
+  function renderGroceryList() {
+    const container = $("#grocery-list");
+    if (!container) return;
+    const filter = $("#grocery-filter")?.value || "all";
+    const items = state.groceryItems.filter((item) => filter === "all" || (filter === "collected" ? item.is_collected : !item.is_collected));
+    if (!items.length) {
+      container.className = "grocery-list empty-state";
+      container.textContent = filter === "all" ? "No grocery items yet." : "No items in this view.";
+      return;
+    }
+    container.className = "grocery-list";
+    container.innerHTML = items.map((item) => {
+      const estimate = item.estimated_price == null ? "" : `<span>Est. ${formatMoney(item.estimated_price)}</span>`;
+      const actual = item.actual_price == null ? "" : `<span>Paid ${formatMoney(item.actual_price)}</span>`;
+      const source = item.source === "recipe" ? `<span class="source-tag">From meal plan</span>` : "";
+      const sale = item.is_sale ? `<span class="sale-tag">Sale</span>` : "";
+      return `<article class="grocery-item${item.is_collected ? " is-collected" : ""}">
+        <button class="grocery-check" type="button" data-action="${item.is_collected ? "uncollect-grocery" : "collect-grocery"}" data-id="${item.id}" aria-label="${item.is_collected ? "Mark needed" : "Collect item"}">${item.is_collected ? "✓" : ""}</button>
+        <div class="grocery-item-copy">
+          <div class="grocery-item-title"><h3>${escapeHTML(item.name)}</h3>${sale}${source}</div>
+          <p>${escapeHTML(groceryCategoryLabel(item.category))}${item.quantity ? ` · ${escapeHTML(item.quantity)}` : ""}</p>
+          <div class="grocery-price-row">${estimate}${actual}</div>
+        </div>
+        <button class="mini-action delete" type="button" data-action="delete-grocery" data-id="${item.id}">Delete</button>
+      </article>`;
+    }).join("");
+  }
+
+  function renderGrocerySummary() {
+    if (!$("#grocery-estimated-total")) return;
+    const needed = state.groceryItems.filter((item) => !item.is_collected);
+    const collected = state.groceryItems.filter((item) => item.is_collected);
+    const estimatedTotal = sum(state.groceryItems.map((item) => item.estimated_price));
+    const actualTotal = sum(collected.map((item) => item.actual_price));
+    const remainingEstimate = sum(needed.map((item) => item.estimated_price));
+    $("#grocery-estimated-total").textContent = formatMoney(estimatedTotal);
+    $("#grocery-actual-total").textContent = formatMoney(actualTotal);
+    $("#grocery-remaining-total").textContent = formatMoney(remainingEstimate);
+    $("#grocery-budget").value = state.groceryBudget == null ? "" : state.groceryBudget.toFixed(2);
+    $("#grocery-budget-left").textContent = state.groceryBudget == null ? "—" : formatMoney(state.groceryBudget - actualTotal - remainingEstimate);
+    const sales = collected.filter((item) => item.is_sale).length;
+    $("#grocery-sale-summary").textContent = `${sales} sale item${sales === 1 ? "" : "s"} collected · ${needed.length} item${needed.length === 1 ? "" : "s"} still needed`;
+  }
+
+  async function handleGroceryAction(event) {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const item = state.groceryItems.find((entry) => entry.id === button.dataset.id);
+    if (!item) return;
+    if (button.dataset.action === "collect-grocery") {
+      const priceText = window.prompt(`Enter the price paid for ${item.name}:`, item.estimated_price ?? "");
+      if (priceText === null) return;
+      const price = Number(priceText);
+      if (!Number.isFinite(price) || price < 0) return showToast("Enter a valid price.", true);
+      const sale = window.confirm("Was this a sale price? Press OK for Yes or Cancel for No.");
+      const { error } = await state.client.from("grocery_items").update({ is_collected: true, actual_price: price, is_sale: sale, collected_at: new Date().toISOString() }).eq("id", item.id).eq("household_id", state.household.id);
+      if (error) return showToast(error.message, true);
+    } else if (button.dataset.action === "uncollect-grocery") {
+      const { error } = await state.client.from("grocery_items").update({ is_collected: false, actual_price: null, is_sale: false, collected_at: null }).eq("id", item.id).eq("household_id", state.household.id);
+      if (error) return showToast(error.message, true);
+    } else if (button.dataset.action === "delete-grocery") {
+      if (!window.confirm(`Delete ${item.name} from the grocery list?`)) return;
+      const { error } = await state.client.from("grocery_items").delete().eq("id", item.id).eq("household_id", state.household.id);
+      if (error) return showToast(error.message, true);
+    }
+    await loadGroceryItems();
+    renderGroceryList();
+    renderGrocerySummary();
+  }
+
+  async function saveGroceryBudget() {
+    const value = $("#grocery-budget").value;
+    const amount = value === "" ? null : Number(value);
+    if (amount != null && (!Number.isFinite(amount) || amount < 0)) return showToast("Enter a valid budget.", true);
+    const payload = { household_id: state.household.id, amount, updated_by: state.user.id };
+    const { error } = await state.client.from("grocery_budgets").upsert(payload, { onConflict: "household_id" });
+    if (error) return showToast(error.message, true);
+    state.groceryBudget = amount;
+    renderGrocerySummary();
+    showToast("Shopping budget saved.");
+  }
+
+  async function addPlanIngredientsToGrocery() {
+    const button = $("#add-plan-ingredients");
+    setMessage("ingredient-import-message", "");
+    setBusy(button, true, "Adding...");
+    const { data: planRows, error: planError } = await state.client
+      .from("meal_plans")
+      .select("recipe_id, recipes(name, ingredients)")
+      .eq("household_id", state.household.id)
+      .eq("week_start", state.currentWeekStart);
+    if (planError) { setBusy(button, false); return showToast(planError.message, true); }
+    const existing = new Set(state.groceryItems.filter((item) => !item.is_collected).map((item) => normalizeItemName(item.name)));
+    const additions = [];
+    for (const row of planRows || []) {
+      const recipe = Array.isArray(row.recipes) ? row.recipes[0] : row.recipes;
+      const lines = String(recipe?.ingredients || "").split(/\r?\n/).map((line) => line.trim().replace(/^[-•*]\s*/, "")).filter(Boolean);
+      for (const line of lines) {
+        const normalized = normalizeItemName(line);
+        if (!normalized || existing.has(normalized)) continue;
+        existing.add(normalized);
+        additions.push({ household_id: state.household.id, created_by: state.user.id, name: line.slice(0, 120), category: "food", source: "recipe", recipe_id: row.recipe_id, meal_plan_week_start: state.currentWeekStart });
+      }
+    }
+    if (!additions.length) {
+      setBusy(button, false);
+      setMessage("ingredient-import-message", "No new ingredients were found. Add ingredient lines to your recipes first.");
+      return;
+    }
+    const { error } = await state.client.from("grocery_items").insert(additions);
+    setBusy(button, false);
+    if (error) return showToast(error.message, true);
+    await loadGroceryItems();
+    renderGroceryList();
+    renderGrocerySummary();
+    setMessage("ingredient-import-message", `${additions.length} ingredient${additions.length === 1 ? "" : "s"} added.`, true);
+  }
+
+  async function clearCollectedGroceryItems() {
+    const count = state.groceryItems.filter((item) => item.is_collected).length;
+    if (!count) return showToast("There are no collected items to clear.");
+    if (!window.confirm(`Remove ${count} collected item${count === 1 ? "" : "s"} from the list?`)) return;
+    const { error } = await state.client.from("grocery_items").delete().eq("household_id", state.household.id).eq("is_collected", true);
+    if (error) return showToast(error.message, true);
+    await loadGroceryItems();
+    renderGroceryList();
+    renderGrocerySummary();
+  }
+
+  function groceryCategoryLabel(value) {
+    return ({ food: "Food", cleaning: "Cleaning supplies", household: "Household", other: "Other" })[value] || "Other";
+  }
+
+  function normalizeItemName(value) {
+    return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
   async function copyInviteCode() {
     const code = state.household.invite_code;
     try {
@@ -879,9 +1077,9 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     if (!page) return;
     $$(".page").forEach((section) => section.classList.toggle("active", section.dataset.page === page));
     $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.target === page));
-    const titles = { dashboard: "Dashboard", purchases: "Purchases", recipes: "Recipes", planner: "Meal Planner", settings: "Settings" };
+    const titles = { dashboard: "Dashboard", purchases: "Purchases", recipes: "Recipes", planner: "Meal Planner", grocery: "Grocery List", settings: "Settings" };
     $("#page-title").textContent = titles[page] || "Household Hub";
-    $("#topbar-add").classList.toggle("hidden", page === "settings");
+    $("#topbar-add").classList.toggle("hidden", page !== "dashboard" && page !== "purchases");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
