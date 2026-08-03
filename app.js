@@ -35,7 +35,7 @@
     bindEvents();
     setDefaultDates();
 
-    const config = window.APP_CONFIG || {};
+    const config = /** @type {{ SUPABASE_URL?: string, SUPABASE_ANON_KEY?: string }} */ (window.APP_CONFIG || {});
     const configured =
       config.SUPABASE_URL &&
       config.SUPABASE_ANON_KEY &&
@@ -844,7 +844,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     if (error) return showToast(error.message, true);
 
     await loadPlan(state.selectedWeekStart);
-    showToast("Five meals selected.");
+    showToast("Six meals selected.");
   }
 
   async function handleMealAction(event) {
@@ -938,8 +938,8 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     }
     container.className = "grocery-list";
     container.innerHTML = items.map((item) => {
-      const estimate = item.estimated_price == null ? "" : `<span>Est. ${formatMoney(item.estimated_price)}</span>`;
-      const actual = item.actual_price == null ? "" : `<span>Paid ${formatMoney(item.actual_price)}</span>`;
+      const estimate = item.estimated_price == null ? "" : `<span>Est. ${formatCurrency(item.estimated_price)}</span>`;
+      const actual = item.actual_price == null ? "" : `<span>Paid ${formatCurrency(item.actual_price)}</span>`;
       const source = item.source === "recipe" ? `<span class="source-tag">From meal plan</span>` : "";
       const sale = item.is_sale ? `<span class="sale-tag">Sale</span>` : "";
       return `<article class="grocery-item${item.is_collected ? " is-collected" : ""}">
@@ -961,11 +961,11 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     const estimatedTotal = sum(state.groceryItems.map((item) => item.estimated_price));
     const actualTotal = sum(collected.map((item) => item.actual_price));
     const remainingEstimate = sum(needed.map((item) => item.estimated_price));
-    $("#grocery-estimated-total").textContent = formatMoney(estimatedTotal);
-    $("#grocery-actual-total").textContent = formatMoney(actualTotal);
-    $("#grocery-remaining-total").textContent = formatMoney(remainingEstimate);
+    $("#grocery-estimated-total").textContent = formatCurrency(estimatedTotal);
+    $("#grocery-actual-total").textContent = formatCurrency(actualTotal);
+    $("#grocery-remaining-total").textContent = formatCurrency(remainingEstimate);
     $("#grocery-budget").value = state.groceryBudget == null ? "" : state.groceryBudget.toFixed(2);
-    $("#grocery-budget-left").textContent = state.groceryBudget == null ? "—" : formatMoney(state.groceryBudget - actualTotal - remainingEstimate);
+    $("#grocery-budget-left").textContent = state.groceryBudget == null ? "—" : formatCurrency(state.groceryBudget - actualTotal - remainingEstimate);
     const sales = collected.filter((item) => item.is_sale).length;
     $("#grocery-sale-summary").textContent = `${sales} sale item${sales === 1 ? "" : "s"} collected · ${needed.length} item${needed.length === 1 ? "" : "s"} still needed`;
   }
@@ -1159,7 +1159,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   function formatWeekRange(startISO) {
     const start = parseISODate(startISO);
     const end = new Date(start);
-    end.setDate(end.getDate() + 4);
+    end.setDate(end.getDate() + 5);
     const startText = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(start);
     const endText = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(end);
     return `${startText} – ${endText}`;
