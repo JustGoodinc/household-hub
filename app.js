@@ -1094,13 +1094,14 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     nav.addEventListener("pointerdown", () => window.clearTimeout(navHideTimer));
     nav.addEventListener("pointerup", () => scheduleNavigationHide(2500));
 
+    // Scrolling never opens the navigation. Any meaningful scroll only hides it.
+    // The small arrow button is now the only way to open it again.
     let lastY = window.scrollY;
     window.addEventListener("scroll", () => {
       const currentY = window.scrollY;
-      if (currentY > lastY + 8) setNavigationCollapsed(true);
-      else if (currentY < lastY - 12) {
-        setNavigationCollapsed(false);
-        scheduleNavigationHide();
+      if (Math.abs(currentY - lastY) > 8) {
+        setNavigationCollapsed(true);
+        window.clearTimeout(navHideTimer);
       }
       lastY = currentY;
     }, { passive: true });
