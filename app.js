@@ -1152,6 +1152,11 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value) || 0);
   }
 
+  // Backward-compatible alias for any cached grocery code that still calls formatMoney.
+  function formatMoney(value) {
+    return formatCurrency(value);
+  }
+
   function formatDisplayDate(isoDate) {
     return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(parseISODate(isoDate));
   }
