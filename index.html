@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f7f3ea">
+  <meta name="description" content="A private shared household purchase tracker, recipe book, and five-day meal planner.">
+  <title>Our Household Hub</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <main id="setup-screen" class="center-screen hidden">
+    <section class="auth-card">
+      <div class="brand-mark" aria-hidden="true">⌂</div>
+      <p class="eyebrow">One-time setup needed</p>
+      <h1>Connect your database</h1>
+      <p class="muted">Open <strong>config.js</strong> and paste your Supabase Project URL and publishable/anon key. The included README walks through every click.</p>
+      <div class="notice warning">
+        Never paste a Supabase <strong>service_role</strong> key into this website.
+      </div>
+    </section>
+  </main>
+
+  <main id="auth-screen" class="center-screen hidden">
+    <section class="auth-card">
+      <div class="brand-mark" aria-hidden="true">⌂</div>
+      <p class="eyebrow">Shared home organizer</p>
+      <h1>Our Household Hub</h1>
+      <p class="muted">Track purchases, save recipes, and plan five dinners together.</p>
+
+      <div class="segmented" role="tablist" aria-label="Account action">
+        <button id="show-signin" class="segment active" type="button">Sign in</button>
+        <button id="show-signup" class="segment" type="button">Create account</button>
+      </div>
+
+      <form id="signin-form" class="stack-form">
+        <label>Email
+          <input id="signin-email" type="email" autocomplete="email" required placeholder="you@example.com">
+        </label>
+        <label>Password
+          <input id="signin-password" type="password" autocomplete="current-password" minlength="6" required placeholder="••••••••">
+        </label>
+        <button class="primary-button" type="submit">Sign in</button>
+      </form>
+
+      <form id="signup-form" class="stack-form hidden">
+        <label>Your name
+          <input id="signup-name" type="text" autocomplete="name" maxlength="40" required placeholder="Oscar or Kate">
+        </label>
+        <label>Email
+          <input id="signup-email" type="email" autocomplete="email" required placeholder="you@example.com">
+        </label>
+        <label>Password
+          <input id="signup-password" type="password" autocomplete="new-password" minlength="6" required placeholder="At least 6 characters">
+        </label>
+        <button class="primary-button" type="submit">Create account</button>
+      </form>
+      <p id="auth-message" class="form-message"></p>
+    </section>
+  </main>
+
+  <main id="onboarding-screen" class="center-screen hidden">
+    <section class="auth-card wide-card">
+      <div class="brand-mark" aria-hidden="true">⌂</div>
+      <p class="eyebrow">Connect your accounts</p>
+      <h1>Set up your household</h1>
+      <p class="muted">The first person creates the household. The second person joins using the invite code.</p>
+
+      <div class="onboarding-grid">
+        <form id="create-household-form" class="panel stack-form">
+          <h2>Create household</h2>
+          <label>Household name
+            <input id="household-name" type="text" maxlength="60" required placeholder="Oscar & Kate's Home">
+          </label>
+          <label>Your display name
+            <input id="creator-display-name" type="text" maxlength="40" required placeholder="Oscar">
+          </label>
+          <button class="primary-button" type="submit">Create household</button>
+        </form>
+
+        <form id="join-household-form" class="panel stack-form">
+          <h2>Join household</h2>
+          <label>Invite code
+            <input id="invite-code" class="code-input" type="text" maxlength="10" required placeholder="AB12CD34EF">
+          </label>
+          <label>Your display name
+            <input id="join-display-name" type="text" maxlength="40" required placeholder="Kate">
+          </label>
+          <button class="secondary-button" type="submit">Join household</button>
+        </form>
+      </div>
+      <button id="onboarding-logout" class="text-button" type="button">Sign out</button>
+      <p id="onboarding-message" class="form-message"></p>
+    </section>
+  </main>
+
+  <div id="app-shell" class="app-shell hidden">
+    <header class="topbar">
+      <div>
+        <p id="topbar-household" class="eyebrow">Household</p>
+        <h1 id="page-title">Dashboard</h1>
+      </div>
+      <button id="topbar-add" class="icon-button" type="button" aria-label="Add purchase">＋</button>
+    </header>
+
+    <div class="content-wrap">
+      <section id="page-dashboard" class="page active" data-page="dashboard">
+        <div class="welcome-row">
+          <div>
+            <p class="muted small">Welcome back,</p>
+            <h2 id="welcome-name">Home</h2>
+          </div>
+          <span id="current-month-label" class="soft-pill"></span>
+        </div>
+
+        <div class="summary-grid">
+          <article class="summary-card food-card">
+            <span class="summary-icon">🍎</span>
+            <p>Food</p>
+            <strong id="dash-food-total">$0.00</strong>
+            <small id="dash-food-average">Avg. $0.00</small>
+          </article>
+          <article class="summary-card gas-card">
+            <span class="summary-icon">⛽</span>
+            <p>Gas</p>
+            <strong id="dash-gas-total">$0.00</strong>
+            <small id="dash-gas-average">Avg. $0.00</small>
+          </article>
+          <article class="summary-card utility-card">
+            <span class="summary-icon">💡</span>
+            <p>Utilities</p>
+            <strong id="dash-utilities-total">$0.00</strong>
+            <small id="dash-utilities-average">Avg. $0.00</small>
+          </article>
+          <article class="summary-card total-card">
+            <span class="summary-icon">∑</span>
+            <p>Month total</p>
+            <strong id="dash-month-total">$0.00</strong>
+            <small id="dash-purchase-count">0 purchases</small>
+          </article>
+        </div>
+
+        <section class="section-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">This week</p>
+              <h2>Five-day dinner plan</h2>
+            </div>
+            <button class="text-button nav-link" type="button" data-target="planner">Open planner</button>
+          </div>
+          <div id="dashboard-meals" class="mini-meal-list empty-state">No meal plan yet.</div>
+        </section>
+
+        <section class="section-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Latest</p>
+              <h2>Recent purchases</h2>
+            </div>
+            <button class="text-button nav-link" type="button" data-target="purchases">View all</button>
+          </div>
+          <div id="recent-purchases" class="purchase-list empty-state">No purchases yet.</div>
+        </section>
+      </section>
+
+      <section id="page-purchases" class="page" data-page="purchases">
+        <section class="section-card form-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">New entry</p>
+              <h2 id="purchase-form-title">Add a purchase</h2>
+            </div>
+          </div>
+          <form id="purchase-form" class="responsive-form">
+            <input id="purchase-id" type="hidden">
+            <label>Amount
+              <div class="money-input"><span>$</span><input id="purchase-amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00"></div>
+            </label>
+            <label>Category
+              <select id="purchase-category" required>
+                <option value="food">Food</option>
+                <option value="gas">Gas</option>
+                <option value="utilities">Utilities</option>
+              </select>
+            </label>
+            <label>Date
+              <input id="purchase-date" type="date" required>
+            </label>
+            <label>Purchased by
+              <select id="purchase-person" required></select>
+            </label>
+            <label>Store or company <span class="optional">Optional</span>
+              <input id="purchase-store" type="text" maxlength="80" placeholder="Walmart, PG&E...">
+            </label>
+            <label class="full-width">Notes <span class="optional">Optional</span>
+              <textarea id="purchase-notes" maxlength="300" rows="2" placeholder="Anything worth remembering"></textarea>
+            </label>
+            <div class="form-actions full-width">
+              <button id="purchase-submit" class="primary-button" type="submit">Save purchase</button>
+              <button id="purchase-cancel-edit" class="secondary-button hidden" type="button">Cancel edit</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="section-card">
+          <div class="section-heading wrap-heading">
+            <div>
+              <p class="eyebrow">History</p>
+              <h2>Purchases</h2>
+            </div>
+            <div class="filter-row">
+              <input id="purchase-month-filter" type="month" aria-label="Filter by month">
+              <select id="purchase-category-filter" aria-label="Filter by category">
+                <option value="all">All categories</option>
+                <option value="food">Food</option>
+                <option value="gas">Gas</option>
+                <option value="utilities">Utilities</option>
+              </select>
+            </div>
+          </div>
+          <div id="purchase-filter-summary" class="inline-summary"></div>
+          <div id="purchase-history" class="purchase-list empty-state">No purchases found.</div>
+        </section>
+      </section>
+
+      <section id="page-recipes" class="page" data-page="recipes">
+        <section class="section-card form-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Recipe book</p>
+              <h2 id="recipe-form-title">Add a recipe</h2>
+            </div>
+          </div>
+          <form id="recipe-form" class="responsive-form">
+            <input id="recipe-id" type="hidden">
+            <label class="full-width">Meal name
+              <input id="recipe-name" type="text" maxlength="100" required placeholder="Chicken Alfredo">
+            </label>
+            <fieldset class="full-width checkbox-fieldset">
+              <legend>Who can cook it?</legend>
+              <label class="check-card"><input id="cook-kate" type="checkbox" value="Kate"><span>Kate</span></label>
+              <label class="check-card"><input id="cook-oscar" type="checkbox" value="Oscar"><span>Oscar</span></label>
+            </fieldset>
+            <label class="full-width">Ingredients <span class="optional">Optional</span>
+              <textarea id="recipe-ingredients" rows="4" placeholder="One ingredient per line"></textarea>
+            </label>
+            <label class="full-width">Instructions <span class="optional">Optional</span>
+              <textarea id="recipe-instructions" rows="4" placeholder="Simple cooking directions"></textarea>
+            </label>
+            <div class="form-actions full-width">
+              <button id="recipe-submit" class="primary-button" type="submit">Save recipe</button>
+              <button id="recipe-cancel-edit" class="secondary-button hidden" type="button">Cancel edit</button>
+            </div>
+          </form>
+        </section>
+
+        <details class="section-card bulk-card">
+          <summary>
+            <span>
+              <span class="eyebrow">Fast entry</span>
+              <strong>Paste your full meal list</strong>
+            </span>
+            <span aria-hidden="true">＋</span>
+          </summary>
+          <p class="muted small">Put one meal per line. Use <strong>(K)</strong> for Kate and <strong>(O)</strong> for Oscar. Meals with both tags will be assigned to both.</p>
+          <textarea id="bulk-recipes" rows="8" placeholder="Tacos (O)&#10;Chicken Alfredo (K)(O)&#10;Baked Salmon (K)"></textarea>
+          <button id="bulk-import-button" class="secondary-button" type="button">Import meal list</button>
+          <p id="bulk-import-message" class="form-message"></p>
+        </details>
+
+        <section class="section-card">
+          <div class="section-heading wrap-heading">
+            <div>
+              <p class="eyebrow">Saved meals</p>
+              <h2><span id="recipe-count">0</span> recipes</h2>
+            </div>
+            <input id="recipe-search" type="search" placeholder="Search recipes" aria-label="Search recipes">
+          </div>
+          <div id="recipe-list" class="recipe-grid empty-state">No recipes yet.</div>
+        </section>
+      </section>
+
+      <section id="page-planner" class="page" data-page="planner">
+        <section class="section-card planner-hero">
+          <div>
+            <p class="eyebrow">Dinner made easier</p>
+            <h2>Five-day meal planner</h2>
+            <p class="muted">Five different meals are chosen from your recipe book. Cooking assignments stay balanced whenever possible.</p>
+          </div>
+          <button id="generate-meals" class="primary-button" type="button">Randomize 5 meals</button>
+        </section>
+
+        <section class="section-card">
+          <div class="week-picker">
+            <button id="previous-week" class="icon-button subtle" type="button" aria-label="Previous week">‹</button>
+            <div>
+              <p class="eyebrow">Selected week</p>
+              <h2 id="planner-week-label">This week</h2>
+            </div>
+            <button id="next-week" class="icon-button subtle" type="button" aria-label="Next week">›</button>
+          </div>
+          <div id="meal-plan-list" class="meal-plan-list empty-state">Add at least five recipes, then randomize your week.</div>
+        </section>
+      </section>
+
+      <section id="page-settings" class="page" data-page="settings">
+        <section class="section-card">
+          <p class="eyebrow">Household</p>
+          <h2 id="settings-household-name">Our Household</h2>
+          <p class="muted">Share this invite code only with the person joining your household.</p>
+          <div class="invite-box">
+            <span id="settings-invite-code">--------</span>
+            <button id="copy-invite-code" class="secondary-button" type="button">Copy code</button>
+          </div>
+        </section>
+
+        <section class="section-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">People</p>
+              <h2>Household members</h2>
+            </div>
+          </div>
+          <div id="member-list" class="member-list"></div>
+        </section>
+
+        <section class="section-card danger-zone">
+          <p class="eyebrow">Account</p>
+          <h2>Sign out</h2>
+          <p class="muted">Your shared household data will remain saved.</p>
+          <button id="app-logout" class="danger-button" type="button">Sign out</button>
+        </section>
+      </section>
+    </div>
+
+    <nav class="bottom-nav" aria-label="Main navigation">
+      <button class="nav-button active" type="button" data-target="dashboard"><span>⌂</span><small>Home</small></button>
+      <button class="nav-button" type="button" data-target="purchases"><span>▤</span><small>Purchases</small></button>
+      <button class="nav-button" type="button" data-target="recipes"><span>⌑</span><small>Recipes</small></button>
+      <button class="nav-button" type="button" data-target="planner"><span>▦</span><small>Meals</small></button>
+      <button class="nav-button" type="button" data-target="settings"><span>⚙</span><small>Settings</small></button>
+    </nav>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js" defer></script>
+</body>
+</html>

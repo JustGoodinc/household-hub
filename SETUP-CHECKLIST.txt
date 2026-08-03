@@ -1,0 +1,18 @@
+OUR HOUSEHOLD HUB - SETUP CHECKLIST
+
+[ ] 1. Create a free Supabase project.
+[ ] 2. Run all of supabase-setup.sql in Supabase SQL Editor.
+[ ] 3. Copy the Supabase Project URL.
+[ ] 4. Copy the Publishable key or legacy anon public key.
+[ ] 5. Paste both values into config.js.
+[ ] 6. Create a new public GitHub repository.
+[ ] 7. Upload the EXTRACTED website files, not the ZIP.
+[ ] 8. GitHub Settings > Pages > Deploy from branch > main > root.
+[ ] 9. Open the GitHub Pages website.
+[ ] 10. First person creates an account and household.
+[ ] 11. Copy the household invite code from Settings.
+[ ] 12. Second person creates a separate account and joins with the code.
+[ ] 13. Paste the meal list into Recipes using (K) and (O).
+[ ] 14. Add at least five recipes and generate the first meal plan.
+
+NEVER put a Supabase service_role key in config.js.
