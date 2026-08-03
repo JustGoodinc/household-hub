@@ -99,6 +99,7 @@
     $("#bulk-import-button").addEventListener("click", bulkImportRecipes);
     $("#recipe-search").addEventListener("input", renderRecipes);
     $("#recipe-list").addEventListener("click", handleRecipeAction);
+    $("#planner-recipe-toggles").addEventListener("click", handleRecipeAction);
 
     $("#generate-meals").addEventListener("click", generateMealPlan);
     $("#previous-week").addEventListener("click", () => changeWeek(-7));
@@ -235,6 +236,7 @@
     renderDashboard();
     renderPurchaseHistory();
     renderRecipes();
+    renderPlannerRecipeToggles();
     renderMealPlan();
     renderMembers();
   }
@@ -345,7 +347,9 @@
     if (!state.household) return;
     const query = $("#recipe-search").value.trim().toLowerCase();
     const recipes = state.recipes.filter((recipe) => recipe.name.toLowerCase().includes(query));
+    const enabledCount = state.recipes.filter(isRecipeEnabled).length;
     $("#recipe-count").textContent = state.recipes.length;
+    $("#recipe-enabled-count").textContent = `${enabledCount} enabled for random plans`;
     const container = $("#recipe-list");
 
     if (!recipes.length) {
@@ -356,14 +360,17 @@
 
     container.className = "recipe-grid";
     container.innerHTML = recipes.map((recipe) => {
+      const enabled = isRecipeEnabled(recipe);
       const details = [
-        recipe.ingredients?.trim() ? `<strong>Ingredients</strong>\n${escapeHTML(recipe.ingredients.trim())}` : "",
-        recipe.instructions?.trim() ? `<strong>Instructions</strong>\n${escapeHTML(recipe.instructions.trim())}` : ""
+        recipe.ingredients?.trim() ? `<strong>Ingredients</strong>
+${escapeHTML(recipe.ingredients.trim())}` : "",
+        recipe.instructions?.trim() ? `<strong>Instructions</strong>
+${escapeHTML(recipe.instructions.trim())}` : ""
       ].filter(Boolean).join("\n\n");
       return `
-        <article class="recipe-card">
+        <article class="recipe-card${enabled ? "" : " is-disabled"}">
           <div class="recipe-card-top">
-            <div>
+            <div class="recipe-title-wrap">
               <h3>${escapeHTML(recipe.name)}</h3>
               <div class="cook-tags">${(recipe.can_cook || []).map((name) => `<span class="cook-tag">${escapeHTML(name)}</span>`).join("")}</div>
             </div>
@@ -372,7 +379,44 @@
               <button class="mini-action delete" type="button" data-action="delete-recipe" data-id="${recipe.id}">Delete</button>
             </div>
           </div>
+          <div class="recipe-card-footer">
+            <button class="meal-toggle-button${enabled ? " is-on" : " is-off"}" type="button" role="switch" aria-checked="${enabled}" data-action="toggle-recipe" data-id="${recipe.id}">
+              <span class="toggle-indicator" aria-hidden="true"></span>
+              <span>${enabled ? "Included in random plans" : "Skipped in random plans"}</span>
+            </button>
+          </div>
           ${details ? `<details class="recipe-details"><summary>View recipe details</summary><pre>${details}</pre></details>` : ""}
+        </article>
+      `;
+    }).join("");
+  }
+
+  function renderPlannerRecipeToggles() {
+    if (!state.household) return;
+    const container = $("#planner-recipe-toggles");
+    const enabledCount = state.recipes.filter(isRecipeEnabled).length;
+    $("#planner-enabled-count").textContent = `${enabledCount} of ${state.recipes.length} enabled`;
+
+    if (!state.recipes.length) {
+      container.className = "meal-pool-list empty-state";
+      container.textContent = "Add recipes first, then choose which meals can be randomized.";
+      return;
+    }
+
+    container.className = "meal-pool-list";
+    container.innerHTML = state.recipes.map((recipe) => {
+      const enabled = isRecipeEnabled(recipe);
+      const cooks = (recipe.can_cook || []).join(" or ") || "No cook assigned";
+      return `
+        <article class="meal-pool-item${enabled ? "" : " is-disabled"}">
+          <div class="meal-pool-copy">
+            <h3>${escapeHTML(recipe.name)}</h3>
+            <p>${escapeHTML(cooks)}</p>
+          </div>
+          <button class="meal-toggle-button compact${enabled ? " is-on" : " is-off"}" type="button" role="switch" aria-checked="${enabled}" data-action="toggle-recipe" data-id="${recipe.id}">
+            <span class="toggle-indicator" aria-hidden="true"></span>
+            <span>${enabled ? "On" : "Off"}</span>
+          </button>
         </article>
       `;
     }).join("");
@@ -385,8 +429,9 @@
 
     if (!state.plan.length) {
       container.className = "meal-plan-list empty-state";
-      container.textContent = state.recipes.length < 5
-        ? `Add ${5 - state.recipes.length} more recipe${5 - state.recipes.length === 1 ? "" : "s"}, then randomize your week.`
+      const enabledCount = state.recipes.filter(isRecipeEnabled).length;
+      container.textContent = enabledCount < 5
+        ? `Enable ${5 - enabledCount} more meal${5 - enabledCount === 1 ? "" : "s"}, then randomize your week.`
         : "No meals saved for this week. Press Randomize 5 meals.";
       return;
     }
@@ -589,6 +634,7 @@
       created_by: state.user.id,
       name: $("#recipe-name").value.trim(),
       can_cook: cooks,
+      is_active: $("#recipe-active").checked,
       ingredients: nullIfEmpty($("#recipe-ingredients").value),
       instructions: nullIfEmpty($("#recipe-instructions").value)
     };
@@ -606,6 +652,7 @@
     await loadRecipes();
     resetRecipeForm();
     renderRecipes();
+    renderPlannerRecipeToggles();
     renderMealPlan();
     showToast(id ? "Recipe updated." : "Recipe saved.");
   }
@@ -621,12 +668,32 @@
       $("#recipe-name").value = recipe.name;
       $("#cook-kate").checked = (recipe.can_cook || []).includes("Kate");
       $("#cook-oscar").checked = (recipe.can_cook || []).includes("Oscar");
+      $("#recipe-active").checked = isRecipeEnabled(recipe);
       $("#recipe-ingredients").value = recipe.ingredients || "";
       $("#recipe-instructions").value = recipe.instructions || "";
       $("#recipe-form-title").textContent = "Edit recipe";
       $("#recipe-submit").textContent = "Update recipe";
       $("#recipe-cancel-edit").classList.remove("hidden");
       $("#recipe-form").scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    if (button.dataset.action === "toggle-recipe") {
+      const nextEnabled = !isRecipeEnabled(recipe);
+      button.disabled = true;
+      const { error } = await state.client
+        .from("recipes")
+        .update({ is_active: nextEnabled })
+        .eq("id", recipe.id)
+        .eq("household_id", state.household.id);
+      button.disabled = false;
+      if (error) return showToast(error.message, true);
+
+      recipe.is_active = nextEnabled;
+      renderRecipes();
+      renderPlannerRecipeToggles();
+      renderMealPlan();
+      showToast(nextEnabled ? `“${recipe.name}” can be selected again.` : `“${recipe.name}” will be skipped.`);
       return;
     }
 
@@ -637,6 +704,7 @@
       await loadRecipes();
       await loadPlan(state.selectedWeekStart);
       renderRecipes();
+      renderPlannerRecipeToggles();
       renderMealPlan();
       showToast("Recipe deleted.");
     }
@@ -644,6 +712,7 @@
 
   function resetRecipeForm() {
     $("#recipe-form").reset();
+    $("#recipe-active").checked = true;
     $("#recipe-id").value = "";
     $("#recipe-form-title").textContent = "Add a recipe";
     $("#recipe-submit").textContent = "Save recipe";
@@ -685,7 +754,8 @@
       household_id: state.household.id,
       created_by: state.user.id,
       name: recipe.name,
-      can_cook: recipe.can_cook
+      can_cook: recipe.can_cook,
+      is_active: true
     }));
 
     if (!rows.length) return setMessage("bulk-import-message", "Every valid meal in that list is already saved.");
@@ -698,6 +768,7 @@
 
     await loadRecipes();
     renderRecipes();
+    renderPlannerRecipeToggles();
     renderMealPlan();
     $("#bulk-recipes").value = "";
     const skipped = parsed.length - rows.length;
@@ -706,11 +777,14 @@
   }
 
   async function generateMealPlan() {
-    if (state.recipes.length < 5) return showToast("Add at least five recipes first.", true);
+    const enabledRecipes = state.recipes.filter(isRecipeEnabled);
+    if (enabledRecipes.length < 5) {
+      return showToast(`Enable at least five meals first. You currently have ${enabledRecipes.length} enabled.`, true);
+    }
     const button = $("#generate-meals");
     setBusy(button, true, "Choosing meals...");
 
-    const chosen = shuffle([...state.recipes]).slice(0, 5);
+    const chosen = shuffle([...enabledRecipes]).slice(0, 5);
     const cookCounts = { Kate: 0, Oscar: 0 };
     const rows = chosen.map((recipe, dayIndex) => ({
       household_id: state.household.id,
@@ -745,8 +819,8 @@
     const dayIndex = Number(button.dataset.day);
     const currentItem = state.plan.find((item) => item.day_index === dayIndex);
     const usedRecipeIds = new Set(state.plan.filter((item) => item.day_index !== dayIndex).map((item) => item.recipe_id));
-    const options = state.recipes.filter((recipe) => !usedRecipeIds.has(recipe.id) && recipe.id !== currentItem?.recipe_id);
-    if (!options.length) return showToast("Add another recipe before rerolling this meal.", true);
+    const options = state.recipes.filter((recipe) => isRecipeEnabled(recipe) && !usedRecipeIds.has(recipe.id) && recipe.id !== currentItem?.recipe_id);
+    if (!options.length) return showToast("Enable another unused meal before rerolling this day.", true);
 
     button.disabled = true;
     const recipe = options[Math.floor(Math.random() * options.length)];
@@ -775,6 +849,10 @@
     date.setDate(date.getDate() + days);
     state.selectedWeekStart = toISODate(date);
     await loadPlan(state.selectedWeekStart);
+  }
+
+  function isRecipeEnabled(recipe) {
+    return recipe?.is_active !== false;
   }
 
   function chooseBalancedCook(eligible, counts) {

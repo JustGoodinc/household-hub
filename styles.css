@@ -386,3 +386,129 @@ strong { font-weight: 800; }
   .bottom-nav { bottom: 1rem; border-bottom: 1px solid rgba(222,216,202,.9); border-radius: 22px; padding-bottom: .45rem; }
   .app-shell { padding-bottom: 110px; }
 }
+
+/* Recipe availability toggles */
+.toggle-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: .85rem .9rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+.toggle-copy { display: grid; gap: .2rem; min-width: 0; }
+.toggle-copy small { color: var(--muted); font-weight: 500; line-height: 1.35; }
+.switch-control { position: relative; width: 50px; height: 28px; flex: 0 0 auto; }
+.switch-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #c9c5bb;
+  transition: background .18s ease;
+}
+.switch-track::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(47,49,45,.24);
+  transition: transform .18s ease;
+}
+.switch-control input:checked + .switch-track { background: var(--primary); }
+.switch-control input:checked + .switch-track::after { transform: translateX(22px); }
+.switch-control input:focus-visible + .switch-track { box-shadow: 0 0 0 3px rgba(52,92,75,.2); }
+
+.recipe-card { transition: background .18s ease, border-color .18s ease, opacity .18s ease; }
+.recipe-card.is-disabled { background: #f4f1e9; border-color: #d8d2c5; }
+.recipe-card.is-disabled .recipe-title-wrap,
+.recipe-card.is-disabled .recipe-details { opacity: .66; }
+.recipe-title-wrap { min-width: 0; }
+.recipe-title-wrap h3 { overflow-wrap: anywhere; }
+.recipe-card-footer { display: flex; align-items: center; margin-top: .8rem; }
+
+.meal-toggle-button {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: .48rem;
+  min-height: 36px;
+  padding: .38rem .62rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-size: .74rem;
+  font-weight: 850;
+  text-align: left;
+}
+.meal-toggle-button.is-on { border-color: rgba(52,92,75,.3); background: rgba(52,92,75,.08); color: var(--primary); }
+.meal-toggle-button.is-off { background: #efebe2; color: #737067; }
+.meal-toggle-button.compact { min-width: 76px; justify-content: center; flex: 0 0 auto; }
+.toggle-indicator {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex: 0 0 34px;
+  border-radius: 999px;
+  background: #c8c4ba;
+  transition: background .18s ease;
+}
+.toggle-indicator::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(47,49,45,.24);
+  transition: transform .18s ease;
+}
+.meal-toggle-button.is-on .toggle-indicator { background: var(--primary); }
+.meal-toggle-button.is-on .toggle-indicator::after { transform: translateX(14px); }
+.meal-toggle-button:focus-visible { outline: 3px solid rgba(52,92,75,.2); outline-offset: 2px; }
+
+.meal-pool-list { display: grid; gap: .6rem; }
+.meal-pool-item {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .78rem .82rem;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #fff;
+  transition: background .18s ease, opacity .18s ease;
+}
+.meal-pool-item.is-disabled { background: #f3efe7; }
+.meal-pool-item.is-disabled .meal-pool-copy { opacity: .62; }
+.meal-pool-copy { min-width: 0; }
+.meal-pool-copy h3 { margin: 0; overflow-wrap: anywhere; }
+.meal-pool-copy p { margin: .15rem 0 0; color: var(--muted); font-size: .74rem; }
+
+@media (max-width: 520px) {
+  .toggle-setting { gap: .7rem; padding: .8rem; }
+  .recipe-card-top { flex-wrap: wrap; }
+  .recipe-card-top .item-actions { width: 100%; justify-content: flex-start; }
+  .meal-toggle-button:not(.compact) { width: 100%; justify-content: flex-start; }
+  .meal-pool-item { align-items: flex-start; }
+}
+
+@media (min-width: 680px) {
+  .meal-pool-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

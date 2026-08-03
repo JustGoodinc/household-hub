@@ -83,7 +83,7 @@
         <form id="join-household-form" class="panel stack-form">
           <h2>Join household</h2>
           <label>Invite code
-            <input id="invite-code" class="code-input" type="text" maxlength="10" required placeholder="AB12CD34EF">
+            <input id="invite-code" class="code-input" type="text" maxlength="8" required placeholder="AB12CD34">
           </label>
           <label>Your display name
             <input id="join-display-name" type="text" maxlength="40" required placeholder="Kate">
@@ -243,6 +243,16 @@
               <label class="check-card"><input id="cook-kate" type="checkbox" value="Kate"><span>Kate</span></label>
               <label class="check-card"><input id="cook-oscar" type="checkbox" value="Oscar"><span>Oscar</span></label>
             </fieldset>
+            <label class="toggle-setting full-width">
+              <span class="toggle-copy">
+                <strong>Include in random meal plans</strong>
+                <small>Turn this off to keep the recipe saved while skipping it during randomization.</small>
+              </span>
+              <span class="switch-control">
+                <input id="recipe-active" type="checkbox" role="switch" checked>
+                <span class="switch-track" aria-hidden="true"></span>
+              </span>
+            </label>
             <label class="full-width">Ingredients <span class="optional">Optional</span>
               <textarea id="recipe-ingredients" rows="4" placeholder="One ingredient per line"></textarea>
             </label>
@@ -275,6 +285,7 @@
             <div>
               <p class="eyebrow">Saved meals</p>
               <h2><span id="recipe-count">0</span> recipes</h2>
+              <p id="recipe-enabled-count" class="muted small">0 enabled for random plans</p>
             </div>
             <input id="recipe-search" type="search" placeholder="Search recipes" aria-label="Search recipes">
           </div>
@@ -287,9 +298,21 @@
           <div>
             <p class="eyebrow">Dinner made easier</p>
             <h2>Five-day meal planner</h2>
-            <p class="muted">Five different meals are chosen from your recipe book. Cooking assignments stay balanced whenever possible.</p>
+            <p class="muted">Five different meals are chosen only from recipes you have enabled. Cooking assignments stay balanced whenever possible.</p>
           </div>
           <button id="generate-meals" class="primary-button" type="button">Randomize 5 meals</button>
+        </section>
+
+        <section class="section-card">
+          <div class="section-heading wrap-heading">
+            <div>
+              <p class="eyebrow">Random meal choices</p>
+              <h2>Meal selection pool</h2>
+              <p class="muted small">Switch meals off when you do not want them picked. The recipe stays saved.</p>
+            </div>
+            <span id="planner-enabled-count" class="soft-pill">0 of 0 enabled</span>
+          </div>
+          <div id="planner-recipe-toggles" class="meal-pool-list empty-state">No recipes yet.</div>
         </section>
 
         <section class="section-card">
