@@ -216,7 +216,8 @@ strong { font-weight: 800; }
   background: rgba(255,253,248,.94);
   box-shadow: 0 9px 28px rgba(54,48,39,.05);
 }
-.section-heading { margin-bottom: 1rem; }
+.section-heading { margin-bottom: 1rem; min-width: 0; }
+.section-heading > * { min-width: 0; }
 .section-heading h2, .section-heading p { margin-bottom: 0; }
 .wrap-heading { align-items: end; flex-wrap: wrap; }
 .empty-state { padding: 1.1rem; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); text-align: center; }
@@ -284,9 +285,23 @@ strong { font-weight: 800; }
 .meal-card h3 { margin: 0 0 .2rem; }
 .meal-card p { margin: 0; color: var(--muted); font-size: .76rem; }
 .reroll-button { width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); color: var(--primary); font-size: 1rem; }
-.mini-meal-list { display: grid; gap: .5rem; }
-.mini-meal { display: flex; justify-content: space-between; gap: .8rem; padding: .65rem .75rem; border-radius: 11px; background: var(--surface-2); font-size: .82rem; }
-.mini-meal strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-meal-list { display: grid; gap: .5rem; width: 100%; min-width: 0; }
+.mini-meal {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(4.4rem, auto) minmax(0, 1fr) minmax(3.7rem, auto);
+  align-items: center;
+  gap: .45rem .75rem;
+  padding: .7rem .75rem;
+  border-radius: 11px;
+  background: var(--surface-2);
+  font-size: .82rem;
+}
+.mini-meal > * { min-width: 0; overflow-wrap: anywhere; }
+.mini-meal > span:first-child { color: var(--muted); font-size: .74rem; font-weight: 800; }
+.mini-meal strong { white-space: normal; line-height: 1.25; }
+.mini-meal > span:last-child { max-width: 8rem; text-align: right; color: var(--primary); font-size: .74rem; font-weight: 850; }
 
 .invite-box { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; margin-top: 1rem; padding: .85rem; border-radius: 14px; background: var(--surface-2); }
 .invite-box span { flex: 1; min-width: 150px; letter-spacing: .18em; font-size: 1.25rem; font-weight: 950; }
@@ -338,6 +353,23 @@ strong { font-weight: 800; }
 }
 .toast.show { transform: translate(-50%, 0); opacity: 1; }
 .toast.error { background: var(--danger); }
+
+@media (max-width: 520px) {
+  .section-heading { align-items: flex-start; flex-wrap: wrap; gap: .45rem .8rem; }
+  .section-heading .text-button { flex: 0 0 auto; }
+
+  .mini-meal {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "day cook"
+      "meal meal";
+    gap: .18rem .65rem;
+    padding: .72rem .8rem;
+  }
+  .mini-meal > span:first-child { grid-area: day; }
+  .mini-meal > strong { grid-area: meal; padding-top: .08rem; }
+  .mini-meal > span:last-child { grid-area: cook; max-width: 45vw; }
+}
 
 @media (min-width: 680px) {
   .onboarding-grid { grid-template-columns: 1fr 1fr; }
