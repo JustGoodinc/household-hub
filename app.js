@@ -8,6 +8,18 @@
     house_bills: { label: "House Bills", icon: "🏠" }
   };
   const DAY_NAMES = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"];
+  const DEFAULT_THEME = "forest";
+  const THEMES = Object.freeze({
+    forest: { name: "Forest", primary: "#344D36", accent: "#F7B37A" },
+    berry: { name: "Berry", primary: "#BE5870", accent: "#B583E6" },
+    sunset: { name: "Sunset", primary: "#FF8000", accent: "#F2B6EA" },
+    mint: { name: "Mint", primary: "#A9D3B8", accent: "#BDAF20" },
+    sky_night: { name: "Sky Night", primary: "#A9C5EA", accent: "#6A004E" },
+    desert: { name: "Desert", primary: "#D9CB69", accent: "#BF4E3A" },
+    ocean: { name: "Ocean", primary: "#629BE5", accent: "#245D38" },
+    lemon: { name: "Lemon", primary: "#FFD500", accent: "#E796E3" },
+    lavender: { name: "Lavender", primary: "#AAA5D6", accent: "#13777A" }
+  });
 
   const state = {
     client: null,
@@ -24,6 +36,7 @@
     currentPlan: [],
     currentWeekStart: getMondayISO(new Date()),
     selectedWeekStart: getMondayISO(new Date()),
+    themeSaving: false,
     initializedSessionId: null
   };
 
@@ -33,6 +46,7 @@
   document.addEventListener("DOMContentLoaded", init);
 
   async function init() {
+    applyTheme(DEFAULT_THEME);
     bindEvents();
     setupAutoHideNavigation();
     setDefaultDates();
@@ -120,6 +134,7 @@
     $("#clear-collected").addEventListener("click", clearCollectedGroceryItems);
 
     $("#copy-invite-code").addEventListener("click", copyInviteCode);
+    $("#theme-picker").addEventListener("click", saveHouseholdTheme);
   }
 
   async function handleSession(session) {
@@ -150,12 +165,14 @@
     state.groceryBudget = null;
     state.plan = [];
     state.currentPlan = [];
+    state.themeSaving = false;
+    applyTheme(DEFAULT_THEME);
   }
 
   async function loadMembership() {
     const { data, error } = await state.client
       .from("household_members")
-      .select("household_id, display_name, role, households(id, name, invite_code)")
+      .select("household_id, display_name, role, households(id, name, invite_code, theme)")
       .eq("user_id", state.user.id)
       .maybeSingle();
 
@@ -175,6 +192,8 @@
 
     state.membership = data;
     state.household = Array.isArray(data.households) ? data.households[0] : data.households;
+    state.household.theme = normalizeTheme(state.household.theme);
+    applyTheme(state.household.theme);
     state.selectedWeekStart = state.currentWeekStart;
     try {
       await loadAllData();
@@ -265,6 +284,7 @@
   function renderAll() {
     $("#topbar-household").textContent = state.household.name;
     $("#welcome-name").textContent = state.membership.display_name;
+    renderDashboardDate();
     $("#current-month-label").textContent = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date());
     $("#settings-household-name").textContent = state.household.name;
     $("#settings-invite-code").textContent = state.household.invite_code;
@@ -278,9 +298,11 @@
     renderGroceryList();
     renderGrocerySummary();
     renderMembers();
+    renderThemePicker();
   }
 
   function renderDashboard() {
+    renderDashboardDate();
     const month = currentMonthValue();
     const monthly = state.purchases.filter((purchase) => purchase.purchase_date.startsWith(month));
     const grouped = { food: [], gas: [], utilities: [], house_bills: [] };
@@ -529,6 +551,158 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
         </div>
       </div>
     `).join("");
+  }
+
+  function renderDashboardDate() {
+    const dateElement = $("#dashboard-current-date");
+    if (!dateElement) return;
+    dateElement.textContent = new Intl.DateTimeFormat(undefined, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric"
+    }).format(new Date());
+  }
+
+  function normalizeTheme(themeValue) {
+    return Object.prototype.hasOwnProperty.call(THEMES, themeValue) ? themeValue : DEFAULT_THEME;
+  }
+
+  function isHouseholdOwner() {
+    return state.membership?.role === "owner";
+  }
+
+  function renderThemePicker() {
+    const picker = $("#theme-picker");
+    if (!picker || !state.household) return;
+    const selectedTheme = normalizeTheme(state.household.theme);
+    const ownerCanEdit = isHouseholdOwner();
+    picker.setAttribute("aria-busy", String(state.themeSaving));
+    picker.querySelectorAll("button[data-theme]").forEach((button) => {
+      const selected = button.dataset.theme === selectedTheme;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-checked", String(selected));
+      button.disabled = state.themeSaving || !ownerCanEdit;
+      button.setAttribute("aria-disabled", String(!ownerCanEdit));
+      const indicator = button.querySelector(".theme-selected-indicator");
+      if (indicator) indicator.textContent = selected ? "✓ Selected" : "Select";
+    });
+    $("#theme-owner-note").classList.toggle("hidden", ownerCanEdit);
+  }
+
+  async function saveHouseholdTheme(event) {
+    const button = event.target.closest("button[data-theme]");
+    if (!button || state.themeSaving || !isHouseholdOwner()) return;
+
+    const nextTheme = normalizeTheme(button.dataset.theme);
+    const previousTheme = normalizeTheme(state.household.theme);
+    if (nextTheme === previousTheme) return;
+
+    state.themeSaving = true;
+    state.household.theme = nextTheme;
+    applyTheme(nextTheme);
+    renderThemePicker();
+
+    const { data, error } = await state.client.rpc("update_household_theme", { p_theme: nextTheme });
+    state.themeSaving = false;
+
+    if (error) {
+      state.household.theme = previousTheme;
+      applyTheme(previousTheme);
+      renderThemePicker();
+      showToast(`Theme could not be saved: ${error.message}`, true);
+      return;
+    }
+
+    const savedTheme = normalizeTheme(typeof data === "string" ? data : data?.theme || nextTheme);
+    state.household.theme = savedTheme;
+    applyTheme(savedTheme);
+    renderThemePicker();
+    showToast(`${THEMES[savedTheme].name} theme saved.`);
+  }
+
+  function applyTheme(themeValue) {
+    const selectedTheme = normalizeTheme(themeValue);
+    const theme = THEMES[selectedTheme];
+    const variables = {
+      "--primary": theme.primary,
+      "--primary-hover": mixHex(theme.primary, "#000000", 0.12),
+      "--primary-contrast": readableTextColor(theme.primary),
+      "--primary-ink": accessibleInk(theme.primary, "#FFFFFF"),
+      "--accent": theme.accent,
+      "--accent-hover": mixHex(theme.accent, "#000000", 0.12),
+      "--accent-contrast": readableTextColor(theme.accent),
+      "--background": "#F7F4EE",
+      "--surface": "#FFFDF8",
+      "--card": "#FFFFFF",
+      "--border": "#DED8CA",
+      "--text": "#2F312D",
+      "--muted-text": "#6F726B",
+      "--success": "#2F6B47",
+      "--warning": "#8A5A13",
+      "--danger": "#A7443D",
+      "--shadow-color": "rgba(42, 45, 40, 0.14)",
+      "--primary-soft": colorWithAlpha(theme.primary, 0.14),
+      "--accent-soft": colorWithAlpha(theme.accent, 0.18),
+      "--focus-ring": colorWithAlpha(accessibleInk(theme.primary, "#FFFFFF"), 0.4),
+      "--surface-translucent": "rgba(255, 253, 248, 0.94)"
+    };
+
+    Object.entries(variables).forEach(([property, value]) => {
+      document.documentElement.style.setProperty(property, value);
+    });
+    document.documentElement.dataset.theme = selectedTheme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme.primary);
+    return selectedTheme;
+  }
+
+  function readableTextColor(background) {
+    const dark = "#1F2320";
+    const light = "#FFFFFF";
+    return contrastRatio(background, dark) >= contrastRatio(background, light) ? dark : light;
+  }
+
+  function accessibleInk(color, background) {
+    let candidate = color;
+    while (contrastRatio(candidate, background) < 4.5) {
+      candidate = mixHex(candidate, "#000000", 0.08);
+    }
+    return candidate;
+  }
+
+  function contrastRatio(first, second) {
+    const firstLuminance = relativeLuminance(first);
+    const secondLuminance = relativeLuminance(second);
+    const lighter = Math.max(firstLuminance, secondLuminance);
+    const darker = Math.min(firstLuminance, secondLuminance);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  function relativeLuminance(hexColor) {
+    const channels = hexToRgb(hexColor).map((channel) => {
+      const normalized = channel / 255;
+      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+    });
+    return (channels[0] * 0.2126) + (channels[1] * 0.7152) + (channels[2] * 0.0722);
+  }
+
+  function mixHex(color, target, amount) {
+    const sourceChannels = hexToRgb(color);
+    const targetChannels = hexToRgb(target);
+    return `#${sourceChannels.map((channel, index) => {
+      const mixed = Math.round(channel + ((targetChannels[index] - channel) * amount));
+      return mixed.toString(16).padStart(2, "0");
+    }).join("")}`;
+  }
+
+  function colorWithAlpha(color, alpha) {
+    const [red, green, blue] = hexToRgb(color);
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+  }
+
+  function hexToRgb(hexColor) {
+    const normalized = hexColor.replace("#", "");
+    return [0, 2, 4].map((index) => Number.parseInt(normalized.slice(index, index + 2), 16));
   }
 
   async function signIn(event) {
@@ -1217,6 +1391,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   function navigate(page) {
     if (!page) return;
+    if (page === "dashboard") renderDashboardDate();
     $$(".page").forEach((section) => section.classList.toggle("active", section.dataset.page === page));
     $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.target === page));
     const titles = { dashboard: "Dashboard", purchases: "Purchases", recipes: "Recipes", planner: "Meal Planner", grocery: "Grocery List", settings: "Settings" };

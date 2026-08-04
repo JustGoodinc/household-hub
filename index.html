@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f7f3ea">
+  <meta name="theme-color" content="#344D36">
   <meta name="description" content="A private shared household purchase tracker, recipe book, and seven-meal planner.">
   <title>Our Household Hub</title>
-  <link rel="stylesheet" href="styles.css?v=20260804-2">
+  <link rel="stylesheet" href="styles.css?v=20260804-3">
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -114,6 +114,7 @@
           <div>
             <p class="muted small">Welcome back,</p>
             <h2 id="welcome-name">Home</h2>
+            <p id="dashboard-current-date" class="dashboard-current-date"></p>
           </div>
           <span id="current-month-label" class="soft-pill"></span>
         </div>
@@ -432,6 +433,55 @@
           </div>
         </section>
 
+        <section class="section-card appearance-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Appearance</p>
+              <h2>Appearance</h2>
+              <p class="muted">Choose the look of your Household Hub.</p>
+            </div>
+          </div>
+          <div id="theme-picker" class="theme-grid" role="radiogroup" aria-label="Household theme">
+            <button class="theme-card" type="button" role="radio" aria-checked="false" data-theme="forest" style="--theme-primary: #344D36; --theme-accent: #F7B37A;">
+              <span class="theme-preview" aria-hidden="true"><span></span><span></span></span>
+              <span class="theme-card-label"><strong>Forest</strong><span class="theme-selected-indicator">Select</span></span>
+            </button>
+            <button class="theme-card" type="button" role="radio" aria-checked="false" data-theme="berry" style="--theme-primary: #BE5870; --theme-accent: #B583E6;">
+              <span class="theme-preview" aria-hidden="true"><span></span><span></span></span>
+              <span class="theme-card-label"><strong>Berry</strong><span class="theme-selected-indicator">Select</span></span>
+            </button>
+            <button class="theme-card" type="button" role="radio" aria-checked="false" data-theme="sunset" style="--theme-primary: #FF8000; --theme-accent: #F2B6EA;">
+              <span class="theme-preview" aria-hidden="true"><span></span><span></span></span>
+              <span class="theme-card-label"><strong>Sunset</strong><span class="theme-selected-indicator">Select</span></span>
+            </button>
+            <button class="theme-card" type="button" role="radio" aria-checked="false" data-theme="mint" style="--theme-primary: #A9D3B8; --theme-accent: #BDAF20;">
+              <span class="theme-preview" aria-hidden="true"><span></span><span></span></span>
+              <span class="theme-card-label"><strong>Mint</strong><span class="theme-selected-indicator">Select</span></span>
+            </button>
+            <button class="theme-card" type="button" role="radio" aria-checked="false" data-theme="sky_night" style="--theme-primary: #A9C5EA; --theme-accent: #6A004E;">
+              <span class="theme-preview" aria-hidden="true"><span></span><span></span></span>
+              <span class="theme-card-label"><strong>Sky Night</strong><span class="theme-selected-indicator">Select</span></span>
+            </button>
+            <button class="theme-card" type="button" role="radio" aria-checked="false" data-theme="desert" style="--theme-primary: #D9CB69; --theme-accent: #BF4E3A;">
+              <span class="theme-preview" aria-hidden="true"><span></span><span></span></span>
+              <span class="theme-card-label"><strong>Desert</strong><span class="theme-selected-indicator">Select</span></span>
+            </button>
+            <button class="theme-card" type="button" role="radio" aria-checked="false" data-theme="ocean" style="--theme-primary: #629BE5; --theme-accent: #245D38;">
+              <span class="theme-preview" aria-hidden="true"><span></span><span></span></span>
+              <span class="theme-card-label"><strong>Ocean</strong><span class="theme-selected-indicator">Select</span></span>
+            </button>
+            <button class="theme-card" type="button" role="radio" aria-checked="false" data-theme="lemon" style="--theme-primary: #FFD500; --theme-accent: #E796E3;">
+              <span class="theme-preview" aria-hidden="true"><span></span><span></span></span>
+              <span class="theme-card-label"><strong>Lemon</strong><span class="theme-selected-indicator">Select</span></span>
+            </button>
+            <button class="theme-card" type="button" role="radio" aria-checked="false" data-theme="lavender" style="--theme-primary: #AAA5D6; --theme-accent: #13777A;">
+              <span class="theme-preview" aria-hidden="true"><span></span><span></span></span>
+              <span class="theme-card-label"><strong>Lavender</strong><span class="theme-selected-indicator">Select</span></span>
+            </button>
+          </div>
+          <p id="theme-owner-note" class="muted small hidden">Only the household owner can change the theme.</p>
+        </section>
+
         <section class="section-card">
           <div class="section-heading">
             <div>
@@ -464,6 +514,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260804-2" defer></script>
+  <script src="app.js?v=20260804-3" defer></script>
 </body>
 </html>
