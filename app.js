@@ -4,9 +4,10 @@
   const CATEGORY_INFO = {
     food: { label: "Food", icon: "🍎" },
     gas: { label: "Gas", icon: "⛽" },
-    utilities: { label: "Utilities", icon: "💡" }
+    utilities: { label: "Utilities", icon: "💡" },
+    house_bills: { label: "House Bills", icon: "🏠" }
   };
-  const DAY_NAMES = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"];
+  const DAY_NAMES = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"];
 
   const state = {
     client: null,
@@ -90,6 +91,7 @@
       navigate("purchases");
       window.setTimeout(() => $("#purchase-amount").focus(), 80);
     });
+    $("#topbar-refresh").addEventListener("click", refreshHouseholdHub);
 
     $("#purchase-form").addEventListener("submit", savePurchase);
     $("#purchase-cancel-edit").addEventListener("click", resetPurchaseForm);
@@ -108,6 +110,7 @@
     $("#previous-week").addEventListener("click", () => changeWeek(-7));
     $("#next-week").addEventListener("click", () => changeWeek(7));
     $("#meal-plan-list").addEventListener("click", handleMealAction);
+    $("#meal-plan-list").addEventListener("change", handleMealSelection);
 
     $("#grocery-form").addEventListener("submit", saveGroceryItem);
     $("#grocery-list").addEventListener("click", handleGroceryAction);
@@ -243,7 +246,7 @@
   async function loadPlan(weekStart) {
     const { data, error } = await state.client
       .from("meal_plans")
-      .select("id, day_index, assigned_cook, recipe_id, recipes(name, can_cook)")
+      .select("id, day_index, plan_type, assigned_cook, recipe_id, recipes(name, can_cook)")
       .eq("household_id", state.household.id)
       .eq("week_start", weekStart)
       .order("day_index", { ascending: true });
@@ -251,6 +254,7 @@
 
     state.plan = (data || []).map((item) => ({
       ...item,
+      plan_type: item.plan_type || "recipe",
       recipe: Array.isArray(item.recipes) ? item.recipes[0] : item.recipes
     }));
     if (weekStart === state.currentWeekStart) state.currentPlan = [...state.plan];
@@ -279,7 +283,7 @@
   function renderDashboard() {
     const month = currentMonthValue();
     const monthly = state.purchases.filter((purchase) => purchase.purchase_date.startsWith(month));
-    const grouped = { food: [], gas: [], utilities: [] };
+    const grouped = { food: [], gas: [], utilities: [], house_bills: [] };
     monthly.forEach((purchase) => grouped[purchase.category]?.push(Number(purchase.amount)));
 
     for (const category of Object.keys(grouped)) {
@@ -313,13 +317,16 @@
       return;
     }
     container.className = "mini-meal-list";
-    container.innerHTML = state.currentPlan.map((item) => `
-      <div class="mini-meal">
-        <span>${DAY_NAMES[item.day_index]}</span>
-        <strong>${escapeHTML(item.recipe?.name || "Deleted recipe")}</strong>
-        <span>${escapeHTML(item.assigned_cook)}</span>
-      </div>
-    `).join("");
+    container.innerHTML = DAY_NAMES.map((dayName, dayIndex) => {
+      const item = state.currentPlan.find((entry) => entry.day_index === dayIndex);
+      return `
+        <div class="mini-meal${item?.plan_type === "eat_out" ? " is-eat-out" : ""}">
+          <span>${dayName}</span>
+          <strong>${item?.plan_type === "eat_out" ? '<span aria-hidden="true">🍽️</span> ' : ""}${escapeHTML(mealPlanName(item))}</strong>
+          <span>${escapeHTML(mealPlanStatus(item))}</span>
+        </div>
+      `;
+    }).join("");
   }
 
   function fillMemberSelect() {
@@ -461,27 +468,54 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     if (!state.household) return;
     $("#planner-week-label").textContent = formatWeekRange(state.selectedWeekStart);
     const container = $("#meal-plan-list");
-
-    if (!state.plan.length) {
-      container.className = "meal-plan-list empty-state";
-      const enabledCount = state.recipes.filter(isRecipeEnabled).length;
-      container.textContent = enabledCount < 5
-        ? `Enable ${5 - enabledCount} more meal${5 - enabledCount === 1 ? "" : "s"}, then randomize your week.`
-        : "No meals saved for this week. Press Randomize 6 meals.";
-      return;
-    }
-
+    const enabledCount = state.recipes.filter(isRecipeEnabled).length;
+    const guidance = !state.plan.length
+      ? `<p class="meal-plan-guidance">${enabledCount < DAY_NAMES.length
+        ? `Enable ${DAY_NAMES.length - enabledCount} more meal${DAY_NAMES.length - enabledCount === 1 ? "" : "s"} to randomize seven different meals, or choose any day manually.`
+        : "No meals saved for this week. Press Randomize 7 meals or choose each day manually."}</p>`
+      : "";
     container.className = "meal-plan-list";
-    container.innerHTML = state.plan.map((item) => `
-      <article class="meal-card">
-        <span class="day-badge">${DAY_NAMES[item.day_index]}</span>
-        <div>
-          <h3>${escapeHTML(item.recipe?.name || "Deleted recipe")}</h3>
-          <p>${escapeHTML(item.assigned_cook)} cooks</p>
-        </div>
-        <button class="reroll-button" type="button" title="Reroll ${DAY_NAMES[item.day_index]}" aria-label="Reroll ${DAY_NAMES[item.day_index]}" data-action="reroll-meal" data-day="${item.day_index}">↻</button>
-      </article>
+    container.innerHTML = guidance + DAY_NAMES.map((dayName, dayIndex) => {
+      const item = state.plan.find((entry) => entry.day_index === dayIndex);
+      const selectedValue = item?.plan_type === "eat_out" ? "eat_out" : item?.recipe_id || "";
+      return `
+        <article class="meal-card${item?.plan_type === "eat_out" ? " is-eat-out" : ""}">
+          <span class="day-badge">${dayName}</span>
+          <div class="meal-card-main">
+            <h3>${item?.plan_type === "eat_out" ? '<span aria-hidden="true">🍽️</span> ' : ""}${escapeHTML(mealPlanName(item))}</h3>
+            <p>${escapeHTML(mealPlanStatus(item))}</p>
+          </div>
+          <label class="meal-select-wrap">
+            <span class="sr-only">Choose meal for ${dayName}</span>
+            <select class="meal-selector" data-action="select-meal" data-day="${dayIndex}" data-previous-value="${escapeAttribute(selectedValue)}" aria-label="Choose meal for ${dayName}">
+              ${mealSelectorOptions(selectedValue)}
+            </select>
+          </label>
+          <button class="reroll-button" type="button" title="Reroll ${dayName}" aria-label="Reroll ${dayName}" data-action="reroll-meal" data-day="${dayIndex}">↻</button>
+        </article>
+      `;
+    }).join("");
+  }
+
+  function mealSelectorOptions(selectedValue) {
+    const placeholder = `<option value=""${selectedValue ? "" : " selected"} disabled>Choose a meal</option>`;
+    const eatingOut = `<option value="eat_out"${selectedValue === "eat_out" ? " selected" : ""}>Eating Out</option>`;
+    const recipes = state.recipes.map((recipe) => `
+      <option value="${escapeAttribute(recipe.id)}"${selectedValue === recipe.id ? " selected" : ""}>${escapeHTML(recipe.name)}</option>
     `).join("");
+    return placeholder + eatingOut + recipes;
+  }
+
+  function mealPlanName(item) {
+    if (!item) return "Not planned";
+    if (item.plan_type === "eat_out") return "Eating Out";
+    return item.recipe?.name || "Deleted recipe";
+  }
+
+  function mealPlanStatus(item) {
+    if (!item) return "Choose a meal";
+    if (item.plan_type === "eat_out") return "No cooking";
+    return `${item.assigned_cook} cooks`;
   }
 
   function renderMembers() {
@@ -813,39 +847,81 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   async function generateMealPlan() {
     const enabledRecipes = state.recipes.filter(isRecipeEnabled);
-    if (enabledRecipes.length < 6) {
-      return showToast(`Enable at least six meals first. You currently have ${enabledRecipes.length} enabled.`, true);
+    if (enabledRecipes.length < DAY_NAMES.length) {
+      return showToast(`Enable at least seven meals first. You currently have ${enabledRecipes.length} enabled.`, true);
     }
     const button = $("#generate-meals");
     setBusy(button, true, "Choosing meals...");
 
-    const chosen = shuffle([...enabledRecipes]).slice(0, 6);
+    const chosen = shuffle([...enabledRecipes]).slice(0, DAY_NAMES.length);
     const cookCounts = { Kate: 0, Oscar: 0 };
     const rows = chosen.map((recipe, dayIndex) => ({
       household_id: state.household.id,
       week_start: state.selectedWeekStart,
       day_index: dayIndex,
+      plan_type: "recipe",
       recipe_id: recipe.id,
       assigned_cook: chooseBalancedCook(recipe.can_cook || [], cookCounts),
       created_by: state.user.id
     }));
 
-    const deleteResult = await state.client
+    const { error } = await state.client
       .from("meal_plans")
-      .delete()
-      .eq("household_id", state.household.id)
-      .eq("week_start", state.selectedWeekStart);
-    if (deleteResult.error) {
-      setBusy(button, false);
-      return showToast(deleteResult.error.message, true);
-    }
-
-    const { error } = await state.client.from("meal_plans").insert(rows);
+      .upsert(rows, { onConflict: "household_id,week_start,day_index" });
     setBusy(button, false);
     if (error) return showToast(error.message, true);
 
     await loadPlan(state.selectedWeekStart);
-    showToast("Six meals selected.");
+    showToast("Seven meals selected.");
+  }
+
+  async function handleMealSelection(event) {
+    const select = event.target.closest("select[data-action='select-meal']");
+    if (!select) return;
+
+    const dayIndex = Number(select.dataset.day);
+    const previousValue = select.dataset.previousValue || "";
+    const selectedValue = select.value;
+    if (!selectedValue || selectedValue === previousValue) return;
+
+    const currentItem = state.plan.find((item) => item.day_index === dayIndex);
+    let payload;
+    if (selectedValue === "eat_out") {
+      payload = {
+        plan_type: "eat_out",
+        recipe_id: null,
+        assigned_cook: "Eating Out"
+      };
+    } else {
+      const recipe = state.recipes.find((item) => item.id === selectedValue);
+      if (!recipe) {
+        select.value = previousValue;
+        return showToast("That recipe is no longer available.", true);
+      }
+      payload = {
+        plan_type: "recipe",
+        recipe_id: recipe.id,
+        assigned_cook: chooseManualCook(recipe, currentItem, dayIndex)
+      };
+    }
+
+    select.disabled = true;
+    const { error } = await state.client.from("meal_plans").upsert({
+      household_id: state.household.id,
+      week_start: state.selectedWeekStart,
+      day_index: dayIndex,
+      ...payload,
+      created_by: state.user.id
+    }, { onConflict: "household_id,week_start,day_index" });
+
+    if (error) {
+      select.disabled = false;
+      select.value = previousValue;
+      return showToast(error.message, true);
+    }
+
+    await loadPlan(state.selectedWeekStart);
+    showToast(`${DAY_NAMES[dayIndex]} saved.`);
   }
 
   async function handleMealAction(event) {
@@ -853,7 +929,9 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     if (!button) return;
     const dayIndex = Number(button.dataset.day);
     const currentItem = state.plan.find((item) => item.day_index === dayIndex);
-    const usedRecipeIds = new Set(state.plan.filter((item) => item.day_index !== dayIndex).map((item) => item.recipe_id));
+    const usedRecipeIds = new Set(state.plan
+      .filter((item) => item.day_index !== dayIndex && item.plan_type !== "eat_out" && item.recipe_id)
+      .map((item) => item.recipe_id));
     const options = state.recipes.filter((recipe) => isRecipeEnabled(recipe) && !usedRecipeIds.has(recipe.id) && recipe.id !== currentItem?.recipe_id);
     if (!options.length) return showToast("Enable another unused meal before rerolling this day.", true);
 
@@ -869,6 +947,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       household_id: state.household.id,
       week_start: state.selectedWeekStart,
       day_index: dayIndex,
+      plan_type: "recipe",
       recipe_id: recipe.id,
       assigned_cook: assignedCook,
       created_by: state.user.id
@@ -898,6 +977,18 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     const selected = tied[Math.floor(Math.random() * tied.length)];
     counts[selected] = (counts[selected] || 0) + 1;
     return selected;
+  }
+
+  function chooseManualCook(recipe, currentItem, dayIndex) {
+    const eligible = (recipe.can_cook || []).filter((name) => name === "Kate" || name === "Oscar");
+    if (eligible.length === 1) return eligible[0];
+    if (eligible.includes(currentItem?.assigned_cook)) return currentItem.assigned_cook;
+
+    const cookCounts = { Kate: 0, Oscar: 0 };
+    state.plan.filter((item) => item.day_index !== dayIndex && item.plan_type !== "eat_out").forEach((item) => {
+      if (cookCounts[item.assigned_cook] !== undefined) cookCounts[item.assigned_cook] += 1;
+    });
+    return chooseBalancedCook(eligible, cookCounts);
   }
 
   async function saveGroceryItem(event) {
@@ -1015,13 +1106,14 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     setBusy(button, true, "Adding...");
     const { data: planRows, error: planError } = await state.client
       .from("meal_plans")
-      .select("recipe_id, recipes(name, ingredients)")
+      .select("plan_type, recipe_id, recipes(name, ingredients)")
       .eq("household_id", state.household.id)
       .eq("week_start", state.currentWeekStart);
     if (planError) { setBusy(button, false); return showToast(planError.message, true); }
     const existing = new Set(state.groceryItems.filter((item) => !item.is_collected).map((item) => normalizeItemName(item.name)));
     const additions = [];
     for (const row of planRows || []) {
+      if (row.plan_type === "eat_out" || !row.recipe_id) continue;
       const recipe = Array.isArray(row.recipes) ? row.recipes[0] : row.recipes;
       const lines = String(recipe?.ingredients || "").split(/\r?\n/).map((line) => line.trim().replace(/^[-•*]\s*/, "")).filter(Boolean);
       for (const line of lines) {
@@ -1134,6 +1226,12 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     scheduleNavigationHide(1800);
   }
 
+  function refreshHouseholdHub() {
+    const url = new URL(window.location.href);
+    url.searchParams.set("refresh", Date.now().toString());
+    window.location.replace(url.toString());
+  }
+
   function showOnly(id) {
     ["setup-screen", "auth-screen", "onboarding-screen", "app-shell"].forEach((screenId) => {
       $("#" + screenId).classList.toggle("hidden", screenId !== id);
@@ -1215,7 +1313,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   function formatWeekRange(startISO) {
     const start = parseISODate(startISO);
     const end = new Date(start);
-    end.setDate(end.getDate() + 5);
+    end.setDate(end.getDate() + 6);
     const startText = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(start);
     const endText = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(end);
     return `${startText} – ${endText}`;
