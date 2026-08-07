@@ -34,8 +34,12 @@ jobs:
           version: latest
           github-token: ${{ github.token }}
 
+      # Password-based database authentication avoids the Supabase CLI temporary login-role issue.
       - name: Link Supabase project
-        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+        run: |
+          supabase link \
+            --project-ref "$SUPABASE_PROJECT_ID" \
+            --password "$SUPABASE_DB_PASSWORD"
 
       - name: Deploy database migrations
         run: supabase db push --yes
