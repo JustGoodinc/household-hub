@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#344D36">
   <meta name="description" content="A private shared household purchase tracker, recipe book, and seven-meal planner.">
   <title>Our Household Hub</title>
-  <link rel="stylesheet" href="styles.css?v=20260804-3">
+  <link rel="stylesheet" href="styles.css?v=20260807-1">
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -144,6 +144,12 @@
             <strong id="dash-house_bills-total">$0.00</strong>
             <small id="dash-house_bills-average">Avg. $0.00</small>
           </article>
+          <article class="summary-card entertainment-card">
+            <span class="summary-icon">🎬</span>
+            <p>Entertainment</p>
+            <strong id="dash-entertainment-total">$0.00</strong>
+            <small id="dash-entertainment-average">Avg. $0.00</small>
+          </article>
           <article class="summary-card total-card">
             <span class="summary-icon">∑</span>
             <p>Month total</p>
@@ -194,6 +200,7 @@
                 <option value="gas">Gas</option>
                 <option value="utilities">Utilities</option>
                 <option value="house_bills">House Bills</option>
+                <option value="entertainment">Entertainment</option>
               </select>
             </label>
             <label>Date
@@ -229,6 +236,7 @@
                 <option value="gas">Gas</option>
                 <option value="utilities">Utilities</option>
                 <option value="house_bills">House Bills</option>
+                <option value="entertainment">Entertainment</option>
               </select>
             </div>
           </div>
@@ -483,6 +491,21 @@
         </section>
 
         <section class="section-card">
+          <p class="eyebrow">Updates</p>
+          <h2>Purchase summaries</h2>
+          <label class="toggle-setting purchase-summary-setting" for="purchase-summaries-enabled">
+            <span class="toggle-copy">
+              <strong>Purchase summaries</strong>
+              <small id="purchase-summary-setting-description">Show a summary of new household purchases every 6 hours.</small>
+            </span>
+            <span class="switch-control">
+              <input id="purchase-summaries-enabled" type="checkbox" role="switch" aria-describedby="purchase-summary-setting-description" checked>
+              <span class="switch-track"></span>
+            </span>
+          </label>
+        </section>
+
+        <section class="section-card">
           <div class="section-heading">
             <div>
               <p class="eyebrow">People</p>
@@ -501,6 +524,26 @@
       </section>
     </div>
 
+    <dialog id="purchase-summary-dialog" class="purchase-summary-dialog" aria-modal="true" aria-labelledby="purchase-summary-title" aria-describedby="purchase-summary-subtitle">
+      <div class="purchase-summary-header">
+        <p class="eyebrow">Household Update</p>
+        <h2 id="purchase-summary-title">Household Update</h2>
+        <p id="purchase-summary-subtitle" class="muted">Purchases added since your last summary</p>
+      </div>
+      <div id="purchase-summary-list" class="purchase-summary-list"></div>
+      <div id="purchase-summary-breakdown" class="purchase-summary-breakdown"></div>
+      <div class="purchase-summary-footer">
+        <div class="purchase-summary-totals">
+          <strong id="purchase-summary-count">0 purchases added</strong>
+          <span id="purchase-summary-total">$0.00 total</span>
+        </div>
+        <div class="purchase-summary-actions">
+          <button id="purchase-summary-view" class="secondary-button" type="button">View Purchases</button>
+          <button id="purchase-summary-close" class="primary-button" type="button">Got it</button>
+        </div>
+      </div>
+    </dialog>
+
     <button id="nav-toggle" class="nav-toggle" type="button" aria-label="Show navigation" aria-expanded="true">⌄</button>
     <nav class="bottom-nav" aria-label="Main navigation">
       <button class="nav-button active" type="button" data-target="dashboard"><span>⌂</span><small>Home</small></button>
@@ -514,6 +557,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260804-3" defer></script>
+  <script src="app.js?v=20260807-1" defer></script>
 </body>
 </html>

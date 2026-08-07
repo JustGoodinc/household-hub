@@ -5,9 +5,12 @@
     food: { label: "Food", icon: "🍎" },
     gas: { label: "Gas", icon: "⛽" },
     utilities: { label: "Utilities", icon: "💡" },
-    house_bills: { label: "House Bills", icon: "🏠" }
+    house_bills: { label: "House Bills", icon: "🏠" },
+    entertainment: { label: "Entertainment", icon: "🎬" }
   };
   const DAY_NAMES = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"];
+  const PURCHASE_SUMMARY_INTERVAL_MS = 6 * 60 * 60 * 1000;
+  const PURCHASE_SUMMARY_RETRY_MS = 5 * 60 * 1000;
   const DEFAULT_THEME = "forest";
   const THEMES = Object.freeze({
     forest: { name: "Forest", primary: "#344D36", accent: "#F7B37A" },
@@ -37,11 +40,13 @@
     currentWeekStart: getMondayISO(new Date()),
     selectedWeekStart: getMondayISO(new Date()),
     themeSaving: false,
+    purchaseSummaryChecking: false,
     initializedSessionId: null
   };
 
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+  let purchaseSummaryTimer = null;
 
   document.addEventListener("DOMContentLoaded", init);
 
@@ -135,11 +140,26 @@
 
     $("#copy-invite-code").addEventListener("click", copyInviteCode);
     $("#theme-picker").addEventListener("click", saveHouseholdTheme);
+    $("#purchase-summaries-enabled").addEventListener("change", updatePurchaseSummaryPreference);
+    $("#purchase-summary-close").addEventListener("click", closePurchaseSummary);
+    $("#purchase-summary-view").addEventListener("click", viewPurchaseSummaryPurchases);
+    $("#purchase-summary-dialog").addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closePurchaseSummary();
+    });
+    $("#purchase-summary-dialog").addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) closePurchaseSummary();
+    });
   }
 
   async function handleSession(session) {
     const sessionId = session?.access_token || null;
     if (sessionId && state.initializedSessionId === sessionId) return;
+
+    if (state.initializedSessionId !== sessionId) {
+      clearPurchaseSummaryTimer();
+      closePurchaseSummary();
+    }
 
     state.session = session;
     state.user = session?.user || null;
@@ -156,6 +176,8 @@
   }
 
   function clearState() {
+    clearPurchaseSummaryTimer();
+    closePurchaseSummary();
     state.membership = null;
     state.household = null;
     state.members = [];
@@ -166,13 +188,14 @@
     state.plan = [];
     state.currentPlan = [];
     state.themeSaving = false;
+    state.purchaseSummaryChecking = false;
     applyTheme(DEFAULT_THEME);
   }
 
   async function loadMembership() {
     const { data, error } = await state.client
       .from("household_members")
-      .select("household_id, display_name, role, households(id, name, invite_code, theme)")
+      .select("household_id, display_name, role, purchase_summaries_enabled, purchase_summary_last_checked_at, households(id, name, invite_code, theme)")
       .eq("user_id", state.user.id)
       .maybeSingle();
 
@@ -199,6 +222,7 @@
       await loadAllData();
       showOnly("app-shell");
       navigate("dashboard");
+      await checkPurchaseSummary();
     } catch (error) {
       showToast(error.message || "Unable to load household data.", true);
     }
@@ -299,13 +323,14 @@
     renderGrocerySummary();
     renderMembers();
     renderThemePicker();
+    renderPurchaseSummaryPreference();
   }
 
   function renderDashboard() {
     renderDashboardDate();
     const month = currentMonthValue();
     const monthly = state.purchases.filter((purchase) => purchase.purchase_date.startsWith(month));
-    const grouped = { food: [], gas: [], utilities: [], house_bills: [] };
+    const grouped = { food: [], gas: [], utilities: [], house_bills: [], entertainment: [] };
     monthly.forEach((purchase) => grouped[purchase.category]?.push(Number(purchase.amount)));
 
     for (const category of Object.keys(grouped)) {
@@ -705,6 +730,211 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     return [0, 2, 4].map((index) => Number.parseInt(normalized.slice(index, index + 2), 16));
   }
 
+  function renderPurchaseSummaryPreference() {
+    const control = $("#purchase-summaries-enabled");
+    if (!control || !state.membership) return;
+    control.checked = state.membership.purchase_summaries_enabled !== false;
+  }
+
+  function clearPurchaseSummaryTimer() {
+    if (purchaseSummaryTimer !== null) {
+      window.clearTimeout(purchaseSummaryTimer);
+      purchaseSummaryTimer = null;
+    }
+  }
+
+  function schedulePurchaseSummaryCheck(delayOverride = null) {
+    clearPurchaseSummaryTimer();
+    if (!state.session || !state.household || state.membership?.purchase_summaries_enabled === false) return;
+
+    let delay = delayOverride;
+    if (delay === null) {
+      const checkpointTime = Date.parse(state.membership?.purchase_summary_last_checked_at || "");
+      delay = Number.isFinite(checkpointTime)
+        ? Math.max(PURCHASE_SUMMARY_INTERVAL_MS - (Date.now() - checkpointTime), 0)
+        : 0;
+    }
+
+    purchaseSummaryTimer = window.setTimeout(() => {
+      purchaseSummaryTimer = null;
+      void checkPurchaseSummary();
+    }, Math.max(delay, 1000));
+  }
+
+  async function checkPurchaseSummary() {
+    clearPurchaseSummaryTimer();
+    if (
+      state.purchaseSummaryChecking ||
+      !state.session ||
+      !state.household ||
+      !state.membership ||
+      state.membership.purchase_summaries_enabled === false
+    ) return;
+
+    state.purchaseSummaryChecking = true;
+    const checkingUserId = state.user.id;
+    try {
+      const now = new Date();
+      const nowISO = now.toISOString();
+      const checkpoint = state.membership.purchase_summary_last_checked_at;
+      const checkpointTime = Date.parse(checkpoint || "");
+
+      if (!checkpoint || !Number.isFinite(checkpointTime)) {
+        const savedCheckpoint = await savePurchaseSummaryCheckpoint(nowISO, checkingUserId);
+        if (!savedCheckpoint) return;
+        schedulePurchaseSummaryCheck();
+        return;
+      }
+
+      if (now.getTime() - checkpointTime < PURCHASE_SUMMARY_INTERVAL_MS) {
+        schedulePurchaseSummaryCheck();
+        return;
+      }
+
+      const { data, error } = await state.client
+        .from("purchases")
+        .select("id, amount, category, store, purchased_by, created_by, created_at")
+        .eq("household_id", state.household.id)
+        .gt("created_at", checkpoint)
+        .lte("created_at", nowISO)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      if (state.user?.id !== checkingUserId) return;
+
+      const savedCheckpoint = await savePurchaseSummaryCheckpoint(nowISO, checkingUserId);
+      if (!savedCheckpoint) return;
+      const newPurchases = data || [];
+      if (newPurchases.length) showPurchaseSummary(newPurchases);
+      schedulePurchaseSummaryCheck();
+    } catch (error) {
+      showToast(`Purchase summary check failed: ${error.message || "Please try again."}`, true);
+      schedulePurchaseSummaryCheck(PURCHASE_SUMMARY_RETRY_MS);
+    } finally {
+      state.purchaseSummaryChecking = false;
+    }
+  }
+
+  async function savePurchaseSummaryCheckpoint(checkedAt, expectedUserId) {
+    if (state.user?.id !== expectedUserId) return null;
+    const { data, error } = await state.client.rpc("update_purchase_summary_checkpoint", {
+      p_checked_at: checkedAt
+    });
+    if (error) throw error;
+    if (state.user?.id !== expectedUserId) return null;
+
+    const savedCheckpoint = typeof data === "string" ? data : checkedAt;
+    state.membership.purchase_summary_last_checked_at = savedCheckpoint;
+    return savedCheckpoint;
+  }
+
+  async function updatePurchaseSummaryPreference(event) {
+    const control = event.currentTarget;
+    const preferenceUserId = state.user.id;
+    const nextEnabled = control.checked;
+    const previousEnabled = state.membership.purchase_summaries_enabled !== false;
+    const previousCheckpoint = state.membership.purchase_summary_last_checked_at;
+
+    control.disabled = true;
+    state.membership.purchase_summaries_enabled = nextEnabled;
+    if (!nextEnabled) {
+      clearPurchaseSummaryTimer();
+      closePurchaseSummary();
+    }
+
+    let data;
+    let error;
+    try {
+      const result = await state.client.rpc("update_purchase_summary_preference", {
+        p_enabled: nextEnabled
+      });
+      data = result.data;
+      error = result.error;
+    } catch (requestError) {
+      error = requestError;
+    }
+    control.disabled = false;
+
+    if (state.user?.id !== preferenceUserId) return;
+
+    if (error) {
+      state.membership.purchase_summaries_enabled = previousEnabled;
+      state.membership.purchase_summary_last_checked_at = previousCheckpoint;
+      control.checked = previousEnabled;
+      if (previousEnabled) schedulePurchaseSummaryCheck();
+      showToast(`Purchase summary setting could not be saved: ${error.message}`, true);
+      return;
+    }
+
+    const saved = Array.isArray(data) ? data[0] : data;
+    state.membership.purchase_summaries_enabled = saved?.enabled ?? nextEnabled;
+    state.membership.purchase_summary_last_checked_at = saved?.last_checked_at ?? (
+      nextEnabled ? new Date().toISOString() : previousCheckpoint
+    );
+    control.checked = state.membership.purchase_summaries_enabled;
+
+    if (state.membership.purchase_summaries_enabled) schedulePurchaseSummaryCheck();
+    else clearPurchaseSummaryTimer();
+    showToast(`Purchase summaries turned ${state.membership.purchase_summaries_enabled ? "on" : "off"}.`);
+  }
+
+  function showPurchaseSummary(purchases) {
+    if (!purchases.length || state.membership?.purchase_summaries_enabled === false) return;
+
+    const breakdown = new Map();
+    let total = 0;
+    $("#purchase-summary-list").innerHTML = purchases.map((purchase) => {
+      const info = CATEGORY_INFO[purchase.category] || { label: purchase.category, icon: "•" };
+      const amount = Number(purchase.amount);
+      const title = purchase.store?.trim() || info.label;
+      total += amount;
+      breakdown.set(purchase.category, (breakdown.get(purchase.category) || 0) + amount);
+      return `
+        <article class="purchase-summary-row">
+          <span class="category-dot ${escapeAttribute(purchase.category)}" aria-hidden="true">${info.icon}</span>
+          <div class="purchase-summary-copy">
+            <strong>${escapeHTML(title)}</strong>
+            <span>${escapeHTML(info.label)}</span>
+            <small>Added by ${escapeHTML(purchaseAddedBy(purchase))}</small>
+          </div>
+          <strong class="purchase-summary-price">${formatCurrency(amount)}</strong>
+        </article>
+      `;
+    }).join("");
+
+    $("#purchase-summary-breakdown").innerHTML = Array.from(breakdown.entries()).map(([category, amount]) => {
+      const info = CATEGORY_INFO[category] || { label: category };
+      return `<span><strong>${escapeHTML(info.label)}:</strong> ${formatCurrency(amount)}</span>`;
+    }).join("");
+    $("#purchase-summary-count").textContent = `${purchases.length} purchase${purchases.length === 1 ? "" : "s"} added`;
+    $("#purchase-summary-total").textContent = `${formatCurrency(total)} total`;
+
+    const dialog = $("#purchase-summary-dialog");
+    if (!dialog.open) {
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    }
+    window.setTimeout(() => $("#purchase-summary-close").focus(), 0);
+  }
+
+  function purchaseAddedBy(purchase) {
+    return state.members.find((member) => member.user_id === purchase.created_by)?.display_name
+      || purchase.purchased_by
+      || "Household member";
+  }
+
+  function closePurchaseSummary() {
+    const dialog = $("#purchase-summary-dialog");
+    if (!dialog) return;
+    if (dialog.open && typeof dialog.close === "function") dialog.close();
+    else dialog.removeAttribute("open");
+  }
+
+  function viewPurchaseSummaryPurchases() {
+    closePurchaseSummary();
+    navigate("purchases");
+  }
+
   async function signIn(event) {
     event.preventDefault();
     const button = event.submitter;
@@ -782,8 +1012,13 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   async function signOut() {
     if (!state.client) return;
+    clearPurchaseSummaryTimer();
+    closePurchaseSummary();
     const { error } = await state.client.auth.signOut();
-    if (error) showToast(error.message, true);
+    if (error) {
+      schedulePurchaseSummaryCheck();
+      showToast(error.message, true);
+    }
   }
 
   async function savePurchase(event) {
@@ -1474,11 +1709,6 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   function formatCurrency(value) {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value) || 0);
-  }
-
-  // Backward-compatible alias for any cached grocery code that still calls formatMoney.
-  function formatMoney(value) {
-    return formatCurrency(value);
   }
 
   function formatDisplayDate(isoDate) {
