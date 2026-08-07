@@ -34,14 +34,17 @@ jobs:
           version: latest
           github-token: ${{ github.token }}
 
-      # Direct password authentication avoids the API-key metadata parsing path.
-      - name: Deploy database migrations
+      # Transaction-pooler password authentication avoids the API-key metadata parsing path.
+      - name: Configure database connection
         shell: bash
         run: |
           encoded_password="$(
             python3 -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["SUPABASE_DB_PASSWORD"], safe=""))'
           )"
-          SUPABASE_DB_URL="postgresql://postgres:${encoded_password}@db.${SUPABASE_PROJECT_ID}.supabase.co:5432/postgres?sslmode=require"
+          SUPABASE_DB_URL="postgresql://postgres.agcnrtltobpsmmoqifxt:${encoded_password}@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require"
           printf '::add-mask::%s\n' "$encoded_password"
           printf '::add-mask::%s\n' "$SUPABASE_DB_URL"
-          supabase db push --db-url "$SUPABASE_DB_URL" --yes
+          printf 'SUPABASE_DB_URL=%s\n' "$SUPABASE_DB_URL" >> "$GITHUB_ENV"
+
+      - name: Deploy database migrations
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --yes
