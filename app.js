@@ -1098,9 +1098,17 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     if (!state.client) return;
     clearPurchaseSummaryTimer();
     closePurchaseSummary();
-    discardTutorialSession(false);
+    // Restore the real UI before disabling Practice Mode so a failed sign-out
+    // can never leave tutorial-prefilled forms connected to production saves.
+    discardTutorialSession(true);
+    clearPurchaseSummaryTimer();
+    closePurchaseSummary();
     const { error } = await state.client.auth.signOut();
     if (error) {
+      if (state.household && state.membership) {
+        renderAll();
+        navigate("dashboard");
+      }
       schedulePurchaseSummaryCheck();
       showToast(error.message, true);
     }
@@ -1797,8 +1805,9 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   async function saveTutorialStatus({ promptSeen = null, completed = null }) {
     const expectedUserId = state.user?.id;
+    const expectedSessionId = state.session?.access_token;
     const expectedMembership = state.membership;
-    if (!expectedUserId || !expectedMembership) return false;
+    if (!expectedUserId || !expectedSessionId || !expectedMembership) return false;
     const { data, error } = await state.client.rpc("update_tutorial_status", {
       p_prompt_seen: promptSeen,
       p_completed: completed
@@ -1807,7 +1816,11 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       showToast(`Tutorial progress could not be saved: ${error.message}`, true);
       return false;
     }
-    if (state.user?.id !== expectedUserId || state.membership !== expectedMembership) return false;
+    if (
+      state.user?.id !== expectedUserId ||
+      state.session?.access_token !== expectedSessionId ||
+      state.membership !== expectedMembership
+    ) return false;
 
     const saved = Array.isArray(data) ? data[0] : data;
     state.membership.tutorial_prompt_seen = saved?.tutorial_prompt_seen
@@ -2124,6 +2137,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     recipe.is_active = !isRecipeEnabled(recipe);
     let completedNow = false;
     if (!recipe.is_active) {
+      tutorialState.completedSteps.delete(4);
       tutorialState.recipeToggleOffSeen = true;
       showToast("Taco Night is off. Now turn it back on.");
     } else if (tutorialState.recipeToggleOffSeen) {
@@ -2284,8 +2298,6 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       tutorialPositionFrame = null;
     }
     clearTutorialTarget();
-    tutorialState = createEmptyTutorialState();
-    document.body.classList.remove("tutorial-active");
     $("#tutorial-mode-banner")?.classList.add("hidden");
     $("#tutorial-panel")?.classList.add("hidden");
     $("#tutorial-spotlight")?.classList.add("hidden");
@@ -2293,6 +2305,8 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     closeTutorialDialog($("#tutorial-exit-dialog"));
     closeTutorialDialog($("#tutorial-price-dialog"));
 
+    // Keep the tutorial guard active until every shared production form has
+    // been scrubbed of practice values.
     if (wasActive && state.household && state.membership) {
       resetPurchaseForm();
       resetRecipeForm();
@@ -2301,6 +2315,12 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       $("#purchase-category-filter").value = "all";
       $("#recipe-search").value = "";
       $("#grocery-filter").value = "all";
+    }
+
+    tutorialState = createEmptyTutorialState();
+    document.body.classList.remove("tutorial-active");
+
+    if (wasActive && state.household && state.membership) {
       renderAll();
     }
     if (renderRealApp && wasActive && state.household && state.membership) {
@@ -2334,6 +2354,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       panel.classList.remove("is-positioned");
       panel.style.removeProperty("top");
       panel.style.removeProperty("left");
+      panel.style.removeProperty("max-height");
     }
   }
 
@@ -2390,7 +2411,8 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     spotlight.classList.remove("hidden");
 
     panel.classList.add("is-positioned");
-    const panelRect = panel.getBoundingClientRect();
+    panel.style.removeProperty("max-height");
+    let panelRect = panel.getBoundingClientRect();
     const edge = 8;
     const gap = 14;
     const leftEdge = viewportLeft + edge;
@@ -2398,11 +2420,44 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     const topEdge = viewportTop + edge;
     const bottomEdge = viewportTop + viewportHeight - edge;
     const left = Math.min(Math.max(rect.left, leftEdge), Math.max(leftEdge, rightEdge - panelRect.width));
-    let top = rect.bottom + gap;
-    if (top + panelRect.height > bottomEdge) top = rect.top - panelRect.height - gap;
+    const roomBelow = Math.max(0, bottomEdge - rect.bottom - gap);
+    const roomAbove = Math.max(0, rect.top - topEdge - gap);
+    const placeBelow = roomBelow >= panelRect.height || roomBelow >= roomAbove;
+    const availableRoom = placeBelow ? roomBelow : roomAbove;
+    if (availableRoom > 0 && panelRect.height > availableRoom) {
+      panel.style.maxHeight = `${availableRoom}px`;
+      panelRect = panel.getBoundingClientRect();
+    }
+
+    let top = placeBelow ? rect.bottom + gap : rect.top - panelRect.height - gap;
     top = Math.min(Math.max(top, topEdge), Math.max(topEdge, bottomEdge - panelRect.height));
+
+    const targetBounds = {
+      left: rect.left - padding,
+      right: rect.right + padding,
+      top: rect.top - padding,
+      bottom: rect.bottom + padding
+    };
+    const candidateBounds = (candidateTop) => ({
+      left,
+      right: left + panelRect.width,
+      top: candidateTop,
+      bottom: candidateTop + panelRect.height
+    });
+    if (rectanglesIntersect(candidateBounds(top), targetBounds)) {
+      const alternatives = [topEdge, Math.max(topEdge, bottomEdge - panelRect.height)];
+      const nonOverlappingTop = alternatives.find((candidateTop) => !rectanglesIntersect(candidateBounds(candidateTop), targetBounds));
+      if (nonOverlappingTop !== undefined) top = nonOverlappingTop;
+    }
     panel.style.left = `${left}px`;
     panel.style.top = `${top}px`;
+  }
+
+  function rectanglesIntersect(first, second) {
+    return first.left < second.right &&
+      first.right > second.left &&
+      first.top < second.bottom &&
+      first.bottom > second.top;
   }
 
   function prefersReducedMotion() {
