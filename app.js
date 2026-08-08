@@ -11,6 +11,7 @@
   const DAY_NAMES = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"];
   const PURCHASE_SUMMARY_INTERVAL_MS = 6 * 60 * 60 * 1000;
   const PURCHASE_SUMMARY_RETRY_MS = 5 * 60 * 1000;
+  const TUTORIAL_TOTAL_STEPS = 9;
   const DEFAULT_THEME = "forest";
   const THEMES = Object.freeze({
     forest: { name: "Forest", primary: "#344D36", accent: "#F7B37A" },
@@ -41,12 +42,16 @@
     selectedWeekStart: getMondayISO(new Date()),
     themeSaving: false,
     purchaseSummaryChecking: false,
+    productionWritesPending: 0,
     initializedSessionId: null
   };
 
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
   let purchaseSummaryTimer = null;
+  let tutorialState = createEmptyTutorialState();
+  let tutorialTargetElement = null;
+  let tutorialPositionFrame = null;
 
   document.addEventListener("DOMContentLoaded", init);
 
@@ -104,9 +109,21 @@
     $("#app-logout").addEventListener("click", signOut);
 
     $$(".nav-button, .nav-link").forEach((button) => {
-      button.addEventListener("click", () => navigate(button.dataset.target));
+      button.addEventListener("click", () => {
+        if (isTutorialMode() && tutorialStepDefinition(tutorialState.step)?.page !== button.dataset.target) {
+          showToast("Follow the highlighted practice step, or exit the tutorial first.");
+          showTutorialStep(tutorialState.step);
+          return;
+        }
+        navigate(button.dataset.target);
+      });
     });
     $("#topbar-add").addEventListener("click", () => {
+      if (isTutorialMode() && tutorialStepDefinition(tutorialState.step)?.page !== "purchases") {
+        showToast("Follow the highlighted practice step, or exit the tutorial first.");
+        showTutorialStep(tutorialState.step);
+        return;
+      }
       navigate("purchases");
       window.setTimeout(() => $("#purchase-amount").focus(), 80);
     });
@@ -150,6 +167,32 @@
     $("#purchase-summary-dialog").addEventListener("click", (event) => {
       if (event.target === event.currentTarget) closePurchaseSummary();
     });
+
+    $("#tutorial-start-button").addEventListener("click", startTutorialFromSettings);
+    $("#tutorial-welcome-start").addEventListener("click", startTutorialFromWelcome);
+    $("#tutorial-welcome-later").addEventListener("click", dismissTutorialWelcome);
+    $("#tutorial-welcome-dialog").addEventListener("cancel", (event) => event.preventDefault());
+    $("#tutorial-exit-button").addEventListener("click", requestTutorialExit);
+    $("#tutorial-skip-button").addEventListener("click", requestTutorialExit);
+    $("#tutorial-back-button").addEventListener("click", tutorialBack);
+    $("#tutorial-primary-button").addEventListener("click", handleTutorialPrimaryAction);
+    $("#tutorial-restart-button").addEventListener("click", restartTutorial);
+    $("#tutorial-price-form").addEventListener("submit", completeTutorialGroceryCollection);
+    $("#tutorial-price-cancel").addEventListener("click", closeTutorialPriceDialog);
+    $("#tutorial-price-dialog").addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeTutorialPriceDialog();
+    });
+    $("#tutorial-keep-learning").addEventListener("click", keepLearning);
+    $("#tutorial-confirm-exit").addEventListener("click", confirmTutorialExit);
+    $("#tutorial-exit-dialog").addEventListener("cancel", (event) => {
+      event.preventDefault();
+      keepLearning();
+    });
+    window.addEventListener("resize", scheduleTutorialPosition);
+    window.addEventListener("scroll", scheduleTutorialPosition, { passive: true });
+    window.visualViewport?.addEventListener("resize", scheduleTutorialPosition);
+    window.visualViewport?.addEventListener("scroll", scheduleTutorialPosition);
   }
 
   async function handleSession(session) {
@@ -159,6 +202,7 @@
     if (state.initializedSessionId !== sessionId) {
       clearPurchaseSummaryTimer();
       closePurchaseSummary();
+      discardTutorialSession(false);
     }
 
     state.session = session;
@@ -178,6 +222,7 @@
   function clearState() {
     clearPurchaseSummaryTimer();
     closePurchaseSummary();
+    discardTutorialSession(false);
     state.membership = null;
     state.household = null;
     state.members = [];
@@ -189,13 +234,14 @@
     state.currentPlan = [];
     state.themeSaving = false;
     state.purchaseSummaryChecking = false;
+    state.productionWritesPending = 0;
     applyTheme(DEFAULT_THEME);
   }
 
   async function loadMembership() {
     const { data, error } = await state.client
       .from("household_members")
-      .select("household_id, display_name, role, purchase_summaries_enabled, purchase_summary_last_checked_at, households(id, name, invite_code, theme)")
+      .select("household_id, display_name, role, purchase_summaries_enabled, purchase_summary_last_checked_at, tutorial_prompt_seen, tutorial_completed, tutorial_completed_at, households(id, name, invite_code, theme)")
       .eq("user_id", state.user.id)
       .maybeSingle();
 
@@ -222,7 +268,8 @@
       await loadAllData();
       showOnly("app-shell");
       navigate("dashboard");
-      await checkPurchaseSummary();
+      const prompted = await maybeShowTutorialPrompt();
+      if (!prompted) await checkPurchaseSummary();
     } catch (error) {
       showToast(error.message || "Unable to load household data.", true);
     }
@@ -324,12 +371,30 @@
     renderMembers();
     renderThemePicker();
     renderPurchaseSummaryPreference();
+    renderTutorialHelp();
+  }
+
+  function displayedPurchases() {
+    return isTutorialMode() ? tutorialState.purchases : state.purchases;
+  }
+
+  function displayedRecipes() {
+    return isTutorialMode() ? tutorialState.recipes : state.recipes;
+  }
+
+  function displayedGroceryItems() {
+    return isTutorialMode() ? tutorialState.groceryItems : state.groceryItems;
+  }
+
+  function displayedGroceryBudget() {
+    return isTutorialMode() ? tutorialState.groceryBudget : state.groceryBudget;
   }
 
   function renderDashboard() {
     renderDashboardDate();
     const month = currentMonthValue();
-    const monthly = state.purchases.filter((purchase) => purchase.purchase_date.startsWith(month));
+    const purchases = displayedPurchases();
+    const monthly = purchases.filter((purchase) => purchase.purchase_date.startsWith(month));
     const grouped = { food: [], gas: [], utilities: [], house_bills: [], entertainment: [] };
     monthly.forEach((purchase) => grouped[purchase.category]?.push(Number(purchase.amount)));
 
@@ -344,7 +409,7 @@
     $("#dash-month-total").textContent = formatCurrency(sum(monthly.map((p) => Number(p.amount))));
     $("#dash-purchase-count").textContent = `${monthly.length} purchase${monthly.length === 1 ? "" : "s"}`;
 
-    const recent = state.purchases.slice(0, 5);
+    const recent = purchases.slice(0, 5);
     const container = $("#recent-purchases");
     if (!recent.length) {
       container.className = "purchase-list empty-state";
@@ -358,6 +423,11 @@
 
   function renderDashboardMeals() {
     const container = $("#dashboard-meals");
+    if (isTutorialMode()) {
+      container.className = "mini-meal-list empty-state";
+      container.textContent = "Your real meal plan stays safely outside Practice Mode.";
+      return;
+    }
     if (!state.currentPlan.length) {
       container.className = "mini-meal-list empty-state";
       container.textContent = "No meal plan yet.";
@@ -388,7 +458,7 @@
     if (!state.household) return;
     const month = $("#purchase-month-filter").value || currentMonthValue();
     const category = $("#purchase-category-filter").value;
-    const filtered = state.purchases.filter((purchase) => {
+    const filtered = displayedPurchases().filter((purchase) => {
       const monthMatches = purchase.purchase_date.startsWith(month);
       const categoryMatches = category === "all" || purchase.category === category;
       return monthMatches && categoryMatches;
@@ -423,7 +493,7 @@
         </div>
         <div class="purchase-side">
           <strong>${formatCurrency(Number(purchase.amount))}</strong>
-          ${showActions ? `<div class="item-actions">
+          ${showActions && !isTutorialMode() ? `<div class="item-actions">
             <button class="mini-action" type="button" data-action="edit-purchase" data-id="${purchase.id}">Edit</button>
             <button class="mini-action delete" type="button" data-action="delete-purchase" data-id="${purchase.id}">Delete</button>
           </div>` : ""}
@@ -435,15 +505,16 @@
   function renderRecipes() {
     if (!state.household) return;
     const query = $("#recipe-search").value.trim().toLowerCase();
-    const recipes = state.recipes.filter((recipe) => recipe.name.toLowerCase().includes(query));
-    const enabledCount = state.recipes.filter(isRecipeEnabled).length;
-    $("#recipe-count").textContent = state.recipes.length;
+    const allRecipes = displayedRecipes();
+    const recipes = allRecipes.filter((recipe) => recipe.name.toLowerCase().includes(query));
+    const enabledCount = allRecipes.filter(isRecipeEnabled).length;
+    $("#recipe-count").textContent = allRecipes.length;
     $("#recipe-enabled-count").textContent = `${enabledCount} enabled for random plans`;
     const container = $("#recipe-list");
 
     if (!recipes.length) {
       container.className = "recipe-grid empty-state";
-      container.textContent = state.recipes.length ? "No recipes match your search." : "No recipes yet.";
+      container.textContent = allRecipes.length ? "No recipes match your search." : "No recipes yet.";
       return;
     }
 
@@ -457,22 +528,23 @@ ${escapeHTML(recipe.ingredients.trim())}` : "",
 ${escapeHTML(recipe.instructions.trim())}` : ""
       ].filter(Boolean).join("\n\n");
       return `
-        <article class="recipe-card${enabled ? "" : " is-disabled"}">
+        <article class="recipe-card${enabled ? "" : " is-disabled"}"${isTutorialMode() ? ' data-tutorial-target="taco-recipe-card"' : ""}>
           <div class="recipe-card-top">
             <div class="recipe-title-wrap">
               <h3>${escapeHTML(recipe.name)}</h3>
               <div class="cook-tags">${(recipe.can_cook || []).map((name) => `<span class="cook-tag">${escapeHTML(name)}</span>`).join("")}</div>
             </div>
-            <div class="item-actions">
+            <div class="item-actions${isTutorialMode() ? " hidden" : ""}">
               <button class="mini-action" type="button" data-action="edit-recipe" data-id="${recipe.id}">Edit</button>
               <button class="mini-action delete" type="button" data-action="delete-recipe" data-id="${recipe.id}">Delete</button>
             </div>
           </div>
           <div class="recipe-card-footer">
-            <button class="meal-toggle-button${enabled ? " is-on" : " is-off"}" type="button" role="switch" aria-checked="${enabled}" data-action="toggle-recipe" data-id="${recipe.id}">
+            <button class="meal-toggle-button${enabled ? " is-on" : " is-off"}" type="button" role="switch" aria-checked="${enabled}" data-action="toggle-recipe" data-id="${recipe.id}"${isTutorialMode() ? ' data-tutorial-target="recipe-toggle"' : ""}>
               <span class="toggle-indicator" aria-hidden="true"></span>
               <span>${enabled ? "Included in random plans" : "Skipped in random plans"}</span>
             </button>
+            ${isTutorialMode() ? `<button class="secondary-button tutorial-ingredient-button" type="button" data-action="tutorial-add-recipe-ingredients" data-id="${recipe.id}" data-tutorial-target="recipe-ingredients-import">Add Ingredients to Grocery List</button>` : ""}
           </div>
           ${details ? `<details class="recipe-details"><summary>View recipe details</summary><pre>${details}</pre></details>` : ""}
         </article>
@@ -483,17 +555,18 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   function renderPlannerRecipeToggles() {
     if (!state.household) return;
     const container = $("#planner-recipe-toggles");
-    const enabledCount = state.recipes.filter(isRecipeEnabled).length;
-    $("#planner-enabled-count").textContent = `${enabledCount} of ${state.recipes.length} enabled`;
+    const recipes = displayedRecipes();
+    const enabledCount = recipes.filter(isRecipeEnabled).length;
+    $("#planner-enabled-count").textContent = `${enabledCount} of ${recipes.length} enabled`;
 
-    if (!state.recipes.length) {
+    if (!recipes.length) {
       container.className = "meal-pool-list empty-state";
       container.textContent = "Add recipes first, then choose which meals can be randomized.";
       return;
     }
 
     container.className = "meal-pool-list";
-    container.innerHTML = state.recipes.map((recipe) => {
+    container.innerHTML = recipes.map((recipe) => {
       const enabled = isRecipeEnabled(recipe);
       const cooks = (recipe.can_cook || []).join(" or ") || "No cook assigned";
       return `
@@ -515,7 +588,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     if (!state.household) return;
     $("#planner-week-label").textContent = formatWeekRange(state.selectedWeekStart);
     const container = $("#meal-plan-list");
-    const enabledCount = state.recipes.filter(isRecipeEnabled).length;
+    const enabledCount = displayedRecipes().filter(isRecipeEnabled).length;
     const guidance = !state.plan.length
       ? `<p class="meal-plan-guidance">${enabledCount < DAY_NAMES.length
         ? `Enable ${DAY_NAMES.length - enabledCount} more meal${DAY_NAMES.length - enabledCount === 1 ? "" : "s"} to randomize seven different meals, or choose any day manually.`
@@ -547,7 +620,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   function mealSelectorOptions(selectedValue) {
     const placeholder = `<option value=""${selectedValue ? "" : " selected"} disabled>Choose a meal</option>`;
     const eatingOut = `<option value="eat_out"${selectedValue === "eat_out" ? " selected" : ""}>Eating Out</option>`;
-    const recipes = state.recipes.map((recipe) => `
+    const recipes = displayedRecipes().map((recipe) => `
       <option value="${escapeAttribute(recipe.id)}"${selectedValue === recipe.id ? " selected" : ""}>${escapeHTML(recipe.name)}</option>
     `).join("");
     return placeholder + eatingOut + recipes;
@@ -618,6 +691,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   async function saveHouseholdTheme(event) {
     const button = event.target.closest("button[data-theme]");
     if (!button || state.themeSaving || !isHouseholdOwner()) return;
+    if (blockTutorialProductionWrite("household theme update")) return;
 
     const nextTheme = normalizeTheme(button.dataset.theme);
     const previousTheme = normalizeTheme(state.household.theme);
@@ -628,7 +702,10 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     applyTheme(nextTheme);
     renderThemePicker();
 
-    const { data, error } = await state.client.rpc("update_household_theme", { p_theme: nextTheme });
+    const { data, error } = await runProductionMutation(
+      "household theme update",
+      () => state.client.rpc("update_household_theme", { p_theme: nextTheme })
+    );
     state.themeSaving = false;
 
     if (error) {
@@ -745,7 +822,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   function schedulePurchaseSummaryCheck(delayOverride = null) {
     clearPurchaseSummaryTimer();
-    if (!state.session || !state.household || state.membership?.purchase_summaries_enabled === false) return;
+    if (isTutorialMode() || !state.session || !state.household || state.membership?.purchase_summaries_enabled === false) return;
 
     let delay = delayOverride;
     if (delay === null) {
@@ -768,6 +845,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       !state.session ||
       !state.household ||
       !state.membership ||
+      isTutorialMode() ||
       state.membership.purchase_summaries_enabled === false
     ) return;
 
@@ -816,10 +894,11 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   }
 
   async function savePurchaseSummaryCheckpoint(checkedAt, expectedUserId) {
-    if (state.user?.id !== expectedUserId) return null;
-    const { data, error } = await state.client.rpc("update_purchase_summary_checkpoint", {
-      p_checked_at: checkedAt
-    });
+    if (isTutorialMode() || state.user?.id !== expectedUserId) return null;
+    const { data, error } = await runProductionMutation(
+      "purchase summary checkpoint update",
+      () => state.client.rpc("update_purchase_summary_checkpoint", { p_checked_at: checkedAt })
+    );
     if (error) throw error;
     if (state.user?.id !== expectedUserId) return null;
 
@@ -830,6 +909,10 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   async function updatePurchaseSummaryPreference(event) {
     const control = event.currentTarget;
+    if (blockTutorialProductionWrite("purchase summary preference update")) {
+      renderPurchaseSummaryPreference();
+      return;
+    }
     const preferenceUserId = state.user.id;
     const nextEnabled = control.checked;
     const previousEnabled = state.membership.purchase_summaries_enabled !== false;
@@ -845,9 +928,10 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     let data;
     let error;
     try {
-      const result = await state.client.rpc("update_purchase_summary_preference", {
-        p_enabled: nextEnabled
-      });
+      const result = await runProductionMutation(
+        "purchase summary preference update",
+        () => state.client.rpc("update_purchase_summary_preference", { p_enabled: nextEnabled })
+      );
       data = result.data;
       error = result.error;
     } catch (requestError) {
@@ -879,7 +963,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   }
 
   function showPurchaseSummary(purchases) {
-    if (!purchases.length || state.membership?.purchase_summaries_enabled === false) return;
+    if (isTutorialMode() || !purchases.length || state.membership?.purchase_summaries_enabled === false) return;
 
     const breakdown = new Map();
     let total = 0;
@@ -1014,6 +1098,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     if (!state.client) return;
     clearPurchaseSummaryTimer();
     closePurchaseSummary();
+    discardTutorialSession(false);
     const { error } = await state.client.auth.signOut();
     if (error) {
       schedulePurchaseSummaryCheck();
@@ -1023,6 +1108,11 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   async function savePurchase(event) {
     event.preventDefault();
+    if (isTutorialMode()) {
+      handleTutorialPurchase(event);
+      return;
+    }
+    if (blockTutorialProductionWrite("purchase save")) return;
     const button = event.submitter;
     setBusy(button, true, "Saving...");
     const id = $("#purchase-id").value;
@@ -1040,9 +1130,12 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     let result;
     if (id) {
       delete payload.created_by;
-      result = await state.client.from("purchases").update(payload).eq("id", id).eq("household_id", state.household.id);
+      result = await runProductionMutation(
+        "purchase update",
+        () => state.client.from("purchases").update(payload).eq("id", id).eq("household_id", state.household.id)
+      );
     } else {
-      result = await state.client.from("purchases").insert(payload);
+      result = await runProductionMutation("purchase insert", () => state.client.from("purchases").insert(payload));
     }
     setBusy(button, false);
 
@@ -1060,6 +1153,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   async function handlePurchaseAction(event) {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
+    if (blockTutorialProductionWrite("purchase change")) return;
     const purchase = state.purchases.find((item) => item.id === button.dataset.id);
     if (!purchase) return;
 
@@ -1080,7 +1174,10 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
     if (button.dataset.action === "delete-purchase") {
       if (!window.confirm(`Delete this ${formatCurrency(Number(purchase.amount))} purchase?`)) return;
-      const { error } = await state.client.from("purchases").delete().eq("id", purchase.id).eq("household_id", state.household.id);
+      const { error } = await runProductionMutation(
+        "purchase deletion",
+        () => state.client.from("purchases").delete().eq("id", purchase.id).eq("household_id", state.household.id)
+      );
       if (error) return showToast(error.message, true);
       await loadPurchases();
       renderDashboard();
@@ -1101,6 +1198,11 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   async function saveRecipe(event) {
     event.preventDefault();
+    if (isTutorialMode()) {
+      handleTutorialRecipe(event);
+      return;
+    }
+    if (blockTutorialProductionWrite("recipe save")) return;
     const cooks = selectedCooks();
     if (!cooks.length) return showToast("Choose Kate, Oscar, or both.", true);
 
@@ -1120,9 +1222,12 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     let result;
     if (id) {
       delete payload.created_by;
-      result = await state.client.from("recipes").update(payload).eq("id", id).eq("household_id", state.household.id);
+      result = await runProductionMutation(
+        "recipe update",
+        () => state.client.from("recipes").update(payload).eq("id", id).eq("household_id", state.household.id)
+      );
     } else {
-      result = await state.client.from("recipes").insert(payload);
+      result = await runProductionMutation("recipe insert", () => state.client.from("recipes").insert(payload));
     }
     setBusy(button, false);
 
@@ -1138,6 +1243,11 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   async function handleRecipeAction(event) {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
+    if (isTutorialMode()) {
+      handleTutorialRecipeAction(button);
+      return;
+    }
+    if (blockTutorialProductionWrite("recipe change")) return;
     const recipe = state.recipes.find((item) => item.id === button.dataset.id);
     if (!recipe) return;
 
@@ -1159,11 +1269,14 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     if (button.dataset.action === "toggle-recipe") {
       const nextEnabled = !isRecipeEnabled(recipe);
       button.disabled = true;
-      const { error } = await state.client
-        .from("recipes")
-        .update({ is_active: nextEnabled })
-        .eq("id", recipe.id)
-        .eq("household_id", state.household.id);
+      const { error } = await runProductionMutation(
+        "recipe availability update",
+        () => state.client
+          .from("recipes")
+          .update({ is_active: nextEnabled })
+          .eq("id", recipe.id)
+          .eq("household_id", state.household.id)
+      );
       button.disabled = false;
       if (error) return showToast(error.message, true);
 
@@ -1177,7 +1290,10 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
     if (button.dataset.action === "delete-recipe") {
       if (!window.confirm(`Delete “${recipe.name}”? It will also be removed from saved meal plans.`)) return;
-      const { error } = await state.client.from("recipes").delete().eq("id", recipe.id).eq("household_id", state.household.id);
+      const { error } = await runProductionMutation(
+        "recipe deletion",
+        () => state.client.from("recipes").delete().eq("id", recipe.id).eq("household_id", state.household.id)
+      );
       if (error) return showToast(error.message, true);
       await loadRecipes();
       await loadPlan(state.selectedWeekStart);
@@ -1198,6 +1314,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   }
 
   async function bulkImportRecipes() {
+    if (blockTutorialProductionWrite("recipe bulk import")) return;
     const rawLines = $("#bulk-recipes").value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     const message = $("#bulk-import-message");
     message.textContent = "";
@@ -1240,7 +1357,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
     const button = $("#bulk-import-button");
     setBusy(button, true, "Importing...");
-    const { error } = await state.client.from("recipes").insert(rows);
+    const { error } = await runProductionMutation("recipe bulk insert", () => state.client.from("recipes").insert(rows));
     setBusy(button, false);
     if (error) return setMessage("bulk-import-message", error.message);
 
@@ -1255,6 +1372,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   }
 
   async function generateMealPlan() {
+    if (blockTutorialProductionWrite("meal plan generation")) return;
     const enabledRecipes = state.recipes.filter(isRecipeEnabled);
     if (enabledRecipes.length < DAY_NAMES.length) {
       return showToast(`Enable at least seven meals first. You currently have ${enabledRecipes.length} enabled.`, true);
@@ -1274,9 +1392,12 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       created_by: state.user.id
     }));
 
-    const { error } = await state.client
-      .from("meal_plans")
-      .upsert(rows, { onConflict: "household_id,week_start,day_index" });
+    const { error } = await runProductionMutation(
+      "meal plan generation",
+      () => state.client
+        .from("meal_plans")
+        .upsert(rows, { onConflict: "household_id,week_start,day_index" })
+    );
     setBusy(button, false);
     if (error) return showToast(error.message, true);
 
@@ -1287,6 +1408,10 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   async function handleMealSelection(event) {
     const select = event.target.closest("select[data-action='select-meal']");
     if (!select) return;
+    if (blockTutorialProductionWrite("meal plan selection")) {
+      renderMealPlan();
+      return;
+    }
 
     const dayIndex = Number(select.dataset.day);
     const previousValue = select.dataset.previousValue || "";
@@ -1315,13 +1440,16 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     }
 
     select.disabled = true;
-    const { error } = await state.client.from("meal_plans").upsert({
-      household_id: state.household.id,
-      week_start: state.selectedWeekStart,
-      day_index: dayIndex,
-      ...payload,
-      created_by: state.user.id
-    }, { onConflict: "household_id,week_start,day_index" });
+    const { error } = await runProductionMutation(
+      "meal plan selection",
+      () => state.client.from("meal_plans").upsert({
+        household_id: state.household.id,
+        week_start: state.selectedWeekStart,
+        day_index: dayIndex,
+        ...payload,
+        created_by: state.user.id
+      }, { onConflict: "household_id,week_start,day_index" })
+    );
 
     if (error) {
       select.disabled = false;
@@ -1336,6 +1464,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   async function handleMealAction(event) {
     const button = event.target.closest("button[data-action='reroll-meal']");
     if (!button) return;
+    if (blockTutorialProductionWrite("meal plan reroll")) return;
     const dayIndex = Number(button.dataset.day);
     const currentItem = state.plan.find((item) => item.day_index === dayIndex);
     const usedRecipeIds = new Set(state.plan
@@ -1352,15 +1481,18 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     });
     const assignedCook = chooseBalancedCook(recipe.can_cook || [], cookCounts);
 
-    const { error } = await state.client.from("meal_plans").upsert({
-      household_id: state.household.id,
-      week_start: state.selectedWeekStart,
-      day_index: dayIndex,
-      plan_type: "recipe",
-      recipe_id: recipe.id,
-      assigned_cook: assignedCook,
-      created_by: state.user.id
-    }, { onConflict: "household_id,week_start,day_index" });
+    const { error } = await runProductionMutation(
+      "meal plan reroll",
+      () => state.client.from("meal_plans").upsert({
+        household_id: state.household.id,
+        week_start: state.selectedWeekStart,
+        day_index: dayIndex,
+        plan_type: "recipe",
+        recipe_id: recipe.id,
+        assigned_cook: assignedCook,
+        created_by: state.user.id
+      }, { onConflict: "household_id,week_start,day_index" })
+    );
     button.disabled = false;
     if (error) return showToast(error.message, true);
     await loadPlan(state.selectedWeekStart);
@@ -1402,6 +1534,11 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   async function saveGroceryItem(event) {
     event.preventDefault();
+    if (isTutorialMode()) {
+      handleTutorialGroceryItem(event);
+      return;
+    }
+    if (blockTutorialProductionWrite("grocery item save")) return;
     const button = event.submitter;
     const name = $("#grocery-name").value.trim();
     if (!name) return showToast("Enter an item name.", true);
@@ -1416,7 +1553,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       estimated_price: estimateValue === "" ? null : Number(estimateValue),
       source: "manual"
     };
-    const { error } = await state.client.from("grocery_items").insert(payload);
+    const { error } = await runProductionMutation("grocery item insert", () => state.client.from("grocery_items").insert(payload));
     setBusy(button, false);
     if (error) return showToast(error.message, true);
     event.target.reset();
@@ -1431,7 +1568,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     const container = $("#grocery-list");
     if (!container) return;
     const filter = $("#grocery-filter")?.value || "all";
-    const items = state.groceryItems.filter((item) => filter === "all" || (filter === "collected" ? item.is_collected : !item.is_collected));
+    const items = displayedGroceryItems().filter((item) => filter === "all" || (filter === "collected" ? item.is_collected : !item.is_collected));
     if (!items.length) {
       container.className = "grocery-list empty-state";
       container.textContent = filter === "all" ? "No grocery items yet." : "No items in this view.";
@@ -1441,32 +1578,35 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     container.innerHTML = items.map((item) => {
       const estimate = item.estimated_price == null ? "" : `<span>Est. ${formatCurrency(item.estimated_price)}</span>`;
       const actual = item.actual_price == null ? "" : `<span>Paid ${formatCurrency(item.actual_price)}</span>`;
-      const source = item.source === "recipe" ? `<span class="source-tag">From meal plan</span>` : "";
+      const source = item.source === "recipe" ? `<span class="source-tag">${isTutorialMode() ? "From Taco Night" : "From meal plan"}</span>` : "";
       const sale = item.is_sale ? `<span class="sale-tag">Sale</span>` : "";
+      const tutorialTarget = isTutorialMode() && item.name === "Ground Beef" ? ' data-tutorial-target="ground-beef-collect"' : "";
       return `<article class="grocery-item${item.is_collected ? " is-collected" : ""}">
-        <button class="grocery-check" type="button" data-action="${item.is_collected ? "uncollect-grocery" : "collect-grocery"}" data-id="${item.id}" aria-label="${item.is_collected ? "Mark needed" : "Collect item"}">${item.is_collected ? "✓" : ""}</button>
+        <button class="grocery-check" type="button" data-action="${item.is_collected ? "uncollect-grocery" : "collect-grocery"}" data-id="${item.id}" aria-label="${item.is_collected ? "Mark needed" : "Collect item"}"${tutorialTarget}>${item.is_collected ? "✓" : ""}</button>
         <div class="grocery-item-copy">
           <div class="grocery-item-title"><h3>${escapeHTML(item.name)}</h3>${sale}${source}</div>
           <p>${escapeHTML(groceryCategoryLabel(item.category))}${item.quantity ? ` · ${escapeHTML(item.quantity)}` : ""}</p>
           <div class="grocery-price-row">${estimate}${actual}</div>
         </div>
-        <button class="mini-action delete" type="button" data-action="delete-grocery" data-id="${item.id}">Delete</button>
+        <button class="mini-action delete${isTutorialMode() ? " hidden" : ""}" type="button" data-action="delete-grocery" data-id="${item.id}">Delete</button>
       </article>`;
     }).join("");
   }
 
   function renderGrocerySummary() {
     if (!$("#grocery-estimated-total")) return;
-    const needed = state.groceryItems.filter((item) => !item.is_collected);
-    const collected = state.groceryItems.filter((item) => item.is_collected);
-    const estimatedTotal = sum(state.groceryItems.map((item) => item.estimated_price));
+    const groceryItems = displayedGroceryItems();
+    const groceryBudget = displayedGroceryBudget();
+    const needed = groceryItems.filter((item) => !item.is_collected);
+    const collected = groceryItems.filter((item) => item.is_collected);
+    const estimatedTotal = sum(groceryItems.map((item) => item.estimated_price));
     const actualTotal = sum(collected.map((item) => item.actual_price));
     const remainingEstimate = sum(needed.map((item) => item.estimated_price));
     $("#grocery-estimated-total").textContent = formatCurrency(estimatedTotal);
     $("#grocery-actual-total").textContent = formatCurrency(actualTotal);
     $("#grocery-remaining-total").textContent = formatCurrency(remainingEstimate);
-    $("#grocery-budget").value = state.groceryBudget == null ? "" : state.groceryBudget.toFixed(2);
-    $("#grocery-budget-left").textContent = state.groceryBudget == null ? "—" : formatCurrency(state.groceryBudget - actualTotal - remainingEstimate);
+    $("#grocery-budget").value = groceryBudget == null ? "" : groceryBudget.toFixed(2);
+    $("#grocery-budget-left").textContent = groceryBudget == null ? "—" : formatCurrency(groceryBudget - actualTotal - remainingEstimate);
     const sales = collected.filter((item) => item.is_sale).length;
     $("#grocery-sale-summary").textContent = `${sales} sale item${sales === 1 ? "" : "s"} collected · ${needed.length} item${needed.length === 1 ? "" : "s"} still needed`;
   }
@@ -1474,6 +1614,11 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   async function handleGroceryAction(event) {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
+    if (isTutorialMode()) {
+      handleTutorialGroceryAction(button);
+      return;
+    }
+    if (blockTutorialProductionWrite("grocery item change")) return;
     const item = state.groceryItems.find((entry) => entry.id === button.dataset.id);
     if (!item) return;
     if (button.dataset.action === "collect-grocery") {
@@ -1482,14 +1627,23 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       const price = Number(priceText);
       if (!Number.isFinite(price) || price < 0) return showToast("Enter a valid price.", true);
       const sale = window.confirm("Was this a sale price? Press OK for Yes or Cancel for No.");
-      const { error } = await state.client.from("grocery_items").update({ is_collected: true, actual_price: price, is_sale: sale, collected_at: new Date().toISOString() }).eq("id", item.id).eq("household_id", state.household.id);
+      const { error } = await runProductionMutation(
+        "grocery collection update",
+        () => state.client.from("grocery_items").update({ is_collected: true, actual_price: price, is_sale: sale, collected_at: new Date().toISOString() }).eq("id", item.id).eq("household_id", state.household.id)
+      );
       if (error) return showToast(error.message, true);
     } else if (button.dataset.action === "uncollect-grocery") {
-      const { error } = await state.client.from("grocery_items").update({ is_collected: false, actual_price: null, is_sale: false, collected_at: null }).eq("id", item.id).eq("household_id", state.household.id);
+      const { error } = await runProductionMutation(
+        "grocery collection reset",
+        () => state.client.from("grocery_items").update({ is_collected: false, actual_price: null, is_sale: false, collected_at: null }).eq("id", item.id).eq("household_id", state.household.id)
+      );
       if (error) return showToast(error.message, true);
     } else if (button.dataset.action === "delete-grocery") {
       if (!window.confirm(`Delete ${item.name} from the grocery list?`)) return;
-      const { error } = await state.client.from("grocery_items").delete().eq("id", item.id).eq("household_id", state.household.id);
+      const { error } = await runProductionMutation(
+        "grocery item deletion",
+        () => state.client.from("grocery_items").delete().eq("id", item.id).eq("household_id", state.household.id)
+      );
       if (error) return showToast(error.message, true);
     }
     await loadGroceryItems();
@@ -1498,11 +1652,18 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   }
 
   async function saveGroceryBudget() {
+    if (blockTutorialProductionWrite("grocery budget update")) {
+      renderGrocerySummary();
+      return;
+    }
     const value = $("#grocery-budget").value;
     const amount = value === "" ? null : Number(value);
     if (amount != null && (!Number.isFinite(amount) || amount < 0)) return showToast("Enter a valid budget.", true);
     const payload = { household_id: state.household.id, amount, updated_by: state.user.id };
-    const { error } = await state.client.from("grocery_budgets").upsert(payload, { onConflict: "household_id" });
+    const { error } = await runProductionMutation(
+      "grocery budget update",
+      () => state.client.from("grocery_budgets").upsert(payload, { onConflict: "household_id" })
+    );
     if (error) return showToast(error.message, true);
     state.groceryBudget = amount;
     renderGrocerySummary();
@@ -1510,6 +1671,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   }
 
   async function addPlanIngredientsToGrocery() {
+    if (blockTutorialProductionWrite("meal ingredient import")) return;
     const button = $("#add-plan-ingredients");
     setMessage("ingredient-import-message", "");
     setBusy(button, true, "Adding...");
@@ -1537,7 +1699,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       setMessage("ingredient-import-message", "No new ingredients were found. Add ingredient lines to your recipes first.");
       return;
     }
-    const { error } = await state.client.from("grocery_items").insert(additions);
+    const { error } = await runProductionMutation("meal ingredient insert", () => state.client.from("grocery_items").insert(additions));
     setBusy(button, false);
     if (error) return showToast(error.message, true);
     await loadGroceryItems();
@@ -1547,10 +1709,14 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   }
 
   async function clearCollectedGroceryItems() {
+    if (blockTutorialProductionWrite("collected grocery deletion")) return;
     const count = state.groceryItems.filter((item) => item.is_collected).length;
     if (!count) return showToast("There are no collected items to clear.");
     if (!window.confirm(`Remove ${count} collected item${count === 1 ? "" : "s"} from the list?`)) return;
-    const { error } = await state.client.from("grocery_items").delete().eq("household_id", state.household.id).eq("is_collected", true);
+    const { error } = await runProductionMutation(
+      "collected grocery deletion",
+      () => state.client.from("grocery_items").delete().eq("household_id", state.household.id).eq("is_collected", true)
+    );
     if (error) return showToast(error.message, true);
     await loadGroceryItems();
     renderGroceryList();
@@ -1559,6 +1725,692 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   function groceryCategoryLabel(value) {
     return ({ food: "Food", cleaning: "Cleaning supplies", household: "Household", other: "Other" })[value] || "Other";
+  }
+
+  function createEmptyTutorialState() {
+    return {
+      active: false,
+      step: 0,
+      purchases: [],
+      recipes: [],
+      groceryItems: [],
+      groceryBudget: null,
+      completedSteps: new Set(),
+      recipeToggleOffSeen: false,
+      previousFocus: null
+    };
+  }
+
+  function isTutorialMode() {
+    return tutorialState.active === true;
+  }
+
+  function blockTutorialProductionWrite(operation) {
+    if (!isTutorialMode()) return false;
+    console.warn(`[Practice Mode] Blocked production write: ${operation}.`);
+    showToast("That action is unavailable in Practice Mode. Your real household data is safe.", true);
+    return true;
+  }
+
+  async function runProductionMutation(operation, request) {
+    if (blockTutorialProductionWrite(operation)) {
+      return { data: null, error: new Error("Production write blocked in Practice Mode.") };
+    }
+    state.productionWritesPending += 1;
+    try {
+      return await request();
+    } finally {
+      state.productionWritesPending = Math.max(0, state.productionWritesPending - 1);
+    }
+  }
+
+  function renderTutorialHelp() {
+    if (!state.membership) return;
+    const completed = state.membership.tutorial_completed === true;
+    $("#tutorial-help-status").textContent = completed ? "Completed ✓" : "Ready when you are.";
+    $("#tutorial-start-button").textContent = completed ? "Replay Tutorial" : "Start Tutorial";
+    const completedAt = $("#tutorial-help-completed-at");
+    if (completed && state.membership.tutorial_completed_at) {
+      const parsed = new Date(state.membership.tutorial_completed_at);
+      completedAt.textContent = Number.isNaN(parsed.getTime())
+        ? ""
+        : `Last completed: ${new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(parsed)}`;
+      completedAt.classList.toggle("hidden", !completedAt.textContent);
+    } else {
+      completedAt.textContent = "";
+      completedAt.classList.add("hidden");
+    }
+  }
+
+  async function maybeShowTutorialPrompt() {
+    if (
+      !state.session ||
+      !state.membership ||
+      state.membership.tutorial_prompt_seen === true ||
+      isTutorialMode()
+    ) return false;
+
+    openTutorialDialog($("#tutorial-welcome-dialog"));
+    window.setTimeout(() => $("#tutorial-welcome-start").focus(), 0);
+    return true;
+  }
+
+  async function saveTutorialStatus({ promptSeen = null, completed = null }) {
+    const expectedUserId = state.user?.id;
+    const expectedMembership = state.membership;
+    if (!expectedUserId || !expectedMembership) return false;
+    const { data, error } = await state.client.rpc("update_tutorial_status", {
+      p_prompt_seen: promptSeen,
+      p_completed: completed
+    });
+    if (error) {
+      showToast(`Tutorial progress could not be saved: ${error.message}`, true);
+      return false;
+    }
+    if (state.user?.id !== expectedUserId || state.membership !== expectedMembership) return false;
+
+    const saved = Array.isArray(data) ? data[0] : data;
+    state.membership.tutorial_prompt_seen = saved?.tutorial_prompt_seen
+      ?? Boolean(state.membership.tutorial_prompt_seen || promptSeen || completed);
+    state.membership.tutorial_completed = saved?.tutorial_completed
+      ?? Boolean(state.membership.tutorial_completed || completed);
+    state.membership.tutorial_completed_at = saved?.tutorial_completed_at
+      ?? state.membership.tutorial_completed_at
+      ?? (completed ? new Date().toISOString() : null);
+    renderTutorialHelp();
+    return true;
+  }
+
+  async function startTutorialFromWelcome(event) {
+    if (!canStartTutorial()) return;
+    const button = event.currentTarget;
+    setBusy(button, true, "Starting...");
+    const saved = await saveTutorialStatus({ promptSeen: true });
+    setBusy(button, false);
+    if (!saved) return;
+    closeTutorialDialog($("#tutorial-welcome-dialog"));
+    beginTutorialSession();
+  }
+
+  async function dismissTutorialWelcome(event) {
+    const button = event.currentTarget;
+    setBusy(button, true, "Saving...");
+    const saved = await saveTutorialStatus({ promptSeen: true });
+    setBusy(button, false);
+    if (!saved) return;
+    closeTutorialDialog($("#tutorial-welcome-dialog"));
+    schedulePurchaseSummaryCheck();
+  }
+
+  async function startTutorialFromSettings(event) {
+    const button = event.currentTarget;
+    if (isTutorialMode()) return;
+    if (!canStartTutorial()) return;
+    if (state.membership?.tutorial_prompt_seen !== true) {
+      setBusy(button, true, "Starting...");
+      const saved = await saveTutorialStatus({ promptSeen: true });
+      setBusy(button, false);
+      if (!saved) return;
+    }
+    beginTutorialSession();
+  }
+
+  function canStartTutorial() {
+    if (state.productionWritesPending === 0) return true;
+    showToast("Please wait for the current save to finish, then start the tutorial again.", true);
+    return false;
+  }
+
+  function beginTutorialSession(previousFocusOverride = null) {
+    if (state.productionWritesPending > 0) {
+      showToast("Please wait for the current save to finish, then start the tutorial again.", true);
+      return false;
+    }
+    const previousFocus = previousFocusOverride || document.activeElement;
+    tutorialState = createEmptyTutorialState();
+    tutorialState.active = true;
+    tutorialState.previousFocus = previousFocus;
+    document.body.classList.add("tutorial-active");
+    clearPurchaseSummaryTimer();
+    closePurchaseSummary();
+    closeTutorialDialog($("#tutorial-welcome-dialog"));
+    $("#tutorial-mode-banner").classList.remove("hidden");
+    $("#tutorial-panel").classList.remove("hidden");
+    $("#purchase-month-filter").value = currentMonthValue();
+    $("#purchase-category-filter").value = "all";
+    $("#recipe-search").value = "";
+    $("#grocery-filter").value = "all";
+    resetPurchaseForm();
+    resetRecipeForm();
+    $("#grocery-form").reset();
+    renderTutorialViews();
+    showTutorialStep(0);
+    return true;
+  }
+
+  function renderTutorialViews() {
+    renderDashboard();
+    renderPurchaseHistory();
+    renderRecipes();
+    renderPlannerRecipeToggles();
+    renderGroceryList();
+    renderGrocerySummary();
+  }
+
+  function tutorialStepDefinition(step) {
+    return [
+      {
+        page: "dashboard",
+        title: "Welcome to your Household Hub!",
+        copy: "<p>You can track household spending, save recipes, plan meals, and manage your grocery list all in one place.</p>",
+        primary: "Let's Go"
+      },
+      {
+        page: "purchases",
+        title: "Let's add a practice purchase.",
+        copy: "<p>The sample fields are ready for you:</p><ul><li><strong>Amount:</strong> $24.50</li><li><strong>Category:</strong> Entertainment</li><li><strong>Store:</strong> Movie Night</li></ul><p>Review them, then press the normal <strong>Add Purchase</strong> button.</p>",
+        target: "#purchase-submit",
+        interactive: true
+      },
+      {
+        page: "dashboard",
+        title: "Great! Your totals updated.",
+        copy: "<p>Purchases are shared with your household and automatically count toward monthly totals.</p><p>The Entertainment total and average now show <strong>$24.50</strong>.</p>",
+        target: ".entertainment-card",
+        primary: "Continue"
+      },
+      {
+        page: "recipes",
+        title: "Now let's save a recipe.",
+        copy: "<p>The form contains <strong>Taco Night</strong>, both household cooks, and four ingredients. Review it, then press <strong>Save recipe</strong>.</p>",
+        target: "#recipe-submit",
+        interactive: true
+      },
+      {
+        page: "recipes",
+        title: "Control recipe availability.",
+        copy: "<p>Recipes can be used in your meal planner, and their ingredients can be sent to your grocery list.</p><p>Toggle Taco Night <strong>off</strong>, then turn it <strong>back on</strong>. Enabled recipes can be selected when Household Hub randomizes meals. Manual meal selection keeps following the app's normal saved-recipe behavior.</p>",
+        target: "[data-tutorial-target='recipe-toggle']",
+        interactive: true
+      },
+      {
+        page: "recipes",
+        title: "Send ingredients to groceries.",
+        copy: "<p>Press <strong>Add Ingredients to Grocery List</strong> on Taco Night. Its four practice ingredients will be added without contacting Supabase.</p>",
+        target: "[data-tutorial-target='recipe-ingredients-import']",
+        interactive: true
+      },
+      {
+        page: "grocery",
+        title: "You can also add anything manually.",
+        copy: "<p><strong>Paper Towels</strong> is ready with the <strong>Cleaning supplies</strong> category. Press <strong>Add to list</strong>.</p>",
+        target: "#grocery-submit",
+        interactive: true
+      },
+      {
+        page: "grocery",
+        title: "Collect a grocery item.",
+        copy: "<p>Check off <strong>Ground Beef</strong> and enter <strong>$6.99</strong> as the actual price.</p><p>Household Hub can compare what you planned to spend with what you actually spent.</p>",
+        target: "[data-tutorial-target='ground-beef-collect']",
+        interactive: true
+      },
+      {
+        page: "dashboard",
+        title: "You're ready! 🎉",
+        copy: "<p>You just learned how to:</p><ul class='tutorial-completion-list'><li>✓ Add a purchase</li><li>✓ Track category totals</li><li>✓ Save a recipe</li><li>✓ Control recipe availability</li><li>✓ Send recipe ingredients to groceries</li><li>✓ Add grocery items manually</li><li>✓ Record the actual price when shopping</li></ul>",
+        primary: "Finish Tutorial"
+      }
+    ][step];
+  }
+
+  function prepareTutorialStep(step) {
+    if (step === 1 && !tutorialState.completedSteps.has(1)) {
+      resetPurchaseForm();
+      $("#purchase-amount").value = "24.50";
+      $("#purchase-category").value = "entertainment";
+      $("#purchase-date").value = todayISO();
+      $("#purchase-person").value = state.membership.display_name;
+      $("#purchase-store").value = "Movie Night";
+      $("#purchase-submit").textContent = "Add Purchase";
+    }
+    if (step === 3 && !tutorialState.completedSteps.has(3)) {
+      resetRecipeForm();
+      $("#recipe-name").value = "Taco Night";
+      $("#cook-kate").checked = true;
+      $("#cook-oscar").checked = true;
+      $("#recipe-active").checked = true;
+      $("#recipe-ingredients").value = "Tortillas\nGround Beef\nCheese\nLettuce";
+    }
+    if (step === 6 && !tutorialState.completedSteps.has(6)) {
+      $("#grocery-form").reset();
+      $("#grocery-name").value = "Paper Towels";
+      $("#grocery-category").value = "cleaning";
+    }
+  }
+
+  function showTutorialStep(step) {
+    if (!isTutorialMode()) return;
+    const nextStep = Math.max(0, Math.min(step, TUTORIAL_TOTAL_STEPS - 1));
+    tutorialState.step = nextStep;
+    prepareTutorialStep(nextStep);
+    renderTutorialViews();
+    const definition = tutorialStepDefinition(nextStep);
+    navigate(definition.page);
+
+    $("#tutorial-step-label").textContent = `Step ${nextStep + 1} of ${TUTORIAL_TOTAL_STEPS}`;
+    $("#tutorial-progress").value = nextStep + 1;
+    $("#tutorial-progress").textContent = `${nextStep + 1} of ${TUTORIAL_TOTAL_STEPS}`;
+    $("#tutorial-panel-title").textContent = definition.title;
+    $("#tutorial-panel-copy").innerHTML = definition.copy;
+    $("#tutorial-back-button").classList.toggle("hidden", nextStep === 0);
+    $("#tutorial-restart-button").classList.toggle("hidden", nextStep !== TUTORIAL_TOTAL_STEPS - 1);
+    const actionReady = !definition.interactive || tutorialState.completedSteps.has(nextStep);
+    const primary = $("#tutorial-primary-button");
+    primary.classList.toggle("hidden", !actionReady);
+    primary.textContent = definition.primary || "Continue";
+    $("#tutorial-panel").classList.remove("hidden");
+    $("#tutorial-announcement").textContent = `${$("#tutorial-step-label").textContent}. ${definition.title} ${$("#tutorial-panel-copy").textContent}`;
+    setTutorialTarget(
+      definition.target || null,
+      definition.interactive ? definition.target : "#tutorial-primary-button"
+    );
+  }
+
+  function handleTutorialPrimaryAction() {
+    if (!isTutorialMode()) return;
+    if (tutorialState.step === TUTORIAL_TOTAL_STEPS - 1) {
+      void finishTutorial();
+      return;
+    }
+    if (tutorialStepDefinition(tutorialState.step).interactive && !tutorialState.completedSteps.has(tutorialState.step)) return;
+    showTutorialStep(tutorialState.step + 1);
+  }
+
+  function tutorialBack() {
+    if (!isTutorialMode() || tutorialState.step === 0) return;
+    showTutorialStep(tutorialState.step - 1);
+  }
+
+  function handleTutorialPurchase(event) {
+    if (tutorialState.step !== 1) {
+      showToast("Follow the highlighted tutorial step first.", true);
+      return;
+    }
+    const amount = Number($("#purchase-amount").value);
+    const category = $("#purchase-category").value;
+    const store = $("#purchase-store").value.trim();
+    if (Math.abs(amount - 24.5) > 0.001 || category !== "entertainment" || store.toLowerCase() !== "movie night") {
+      showToast("Use $24.50, Entertainment, and Movie Night for this practice purchase.", true);
+      return;
+    }
+
+    const now = new Date().toISOString();
+    tutorialState.purchases = [{
+      id: "tutorial-purchase-movie-night",
+      amount: 24.5,
+      category: "entertainment",
+      purchase_date: $("#purchase-date").value || todayISO(),
+      purchased_by: $("#purchase-person").value || state.membership.display_name,
+      store: "Movie Night",
+      notes: nullIfEmpty($("#purchase-notes").value),
+      created_by: state.user.id,
+      created_at: now
+    }];
+    tutorialState.completedSteps.add(1);
+    renderDashboard();
+    renderPurchaseHistory();
+    showToast("Practice purchase saved.");
+    window.setTimeout(() => showTutorialStep(2), 450);
+  }
+
+  function handleTutorialRecipe() {
+    if (tutorialState.step !== 3) {
+      showToast("Follow the highlighted tutorial step first.", true);
+      return;
+    }
+    const name = $("#recipe-name").value.trim();
+    const cooks = selectedCooks();
+    const ingredients = $("#recipe-ingredients").value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+    const requiredIngredients = ["tortillas", "ground beef", "cheese", "lettuce"];
+    if (
+      name.toLowerCase() !== "taco night" ||
+      !cooks.length ||
+      !requiredIngredients.every((required) => ingredients.some((item) => item.toLowerCase() === required))
+    ) {
+      showToast("Use Taco Night, at least one cook, and all four practice ingredients.", true);
+      return;
+    }
+
+    tutorialState.recipes = [{
+      id: "tutorial-recipe-taco-night",
+      household_id: "tutorial",
+      created_by: state.user.id,
+      name: "Taco Night",
+      can_cook: cooks,
+      is_active: true,
+      ingredients: "Tortillas\nGround Beef\nCheese\nLettuce",
+      instructions: nullIfEmpty($("#recipe-instructions").value),
+      created_at: new Date().toISOString()
+    }];
+    tutorialState.completedSteps.add(3);
+    renderRecipes();
+    renderPlannerRecipeToggles();
+    showToast("Practice recipe saved.");
+    window.setTimeout(() => showTutorialStep(4), 450);
+  }
+
+  function handleTutorialRecipeAction(button) {
+    const recipe = tutorialState.recipes.find((item) => item.id === button.dataset.id);
+    if (!recipe) return;
+
+    if (button.dataset.action === "tutorial-add-recipe-ingredients") {
+      if (tutorialState.step !== 5) {
+        showToast("First complete the current practice step.", true);
+        return;
+      }
+      addTutorialRecipeIngredients(recipe);
+      return;
+    }
+
+    if (button.dataset.action !== "toggle-recipe") {
+      blockTutorialProductionWrite("recipe edit or deletion");
+      return;
+    }
+    if (tutorialState.step !== 4) {
+      showToast("Use the toggle when the tutorial highlights it.", true);
+      return;
+    }
+
+    recipe.is_active = !isRecipeEnabled(recipe);
+    let completedNow = false;
+    if (!recipe.is_active) {
+      tutorialState.recipeToggleOffSeen = true;
+      showToast("Taco Night is off. Now turn it back on.");
+    } else if (tutorialState.recipeToggleOffSeen) {
+      tutorialState.completedSteps.add(4);
+      completedNow = true;
+      showToast("Taco Night is enabled again.");
+    }
+    renderRecipes();
+    renderPlannerRecipeToggles();
+    setTutorialTarget("[data-tutorial-target='recipe-toggle']");
+    if (completedNow) window.setTimeout(() => showTutorialStep(5), 450);
+  }
+
+  function addTutorialRecipeIngredients(recipe) {
+    const estimates = { "Tortillas": 3.5, "Ground Beef": 8, "Cheese": 4.25, "Lettuce": 2 };
+    const existingNames = new Set(tutorialState.groceryItems.map((item) => normalizeItemName(item.name)));
+    const additions = recipe.ingredients.split(/\r?\n/).map((name) => name.trim()).filter(Boolean).filter((name) => !existingNames.has(normalizeItemName(name))).map((name, index) => ({
+      id: `tutorial-grocery-recipe-${index}`,
+      household_id: "tutorial",
+      created_by: state.user.id,
+      name,
+      category: "food",
+      quantity: null,
+      estimated_price: estimates[name] ?? null,
+      actual_price: null,
+      is_collected: false,
+      is_sale: false,
+      source: "recipe",
+      recipe_id: recipe.id,
+      created_at: new Date().toISOString()
+    }));
+    tutorialState.groceryItems.push(...additions);
+    tutorialState.completedSteps.add(5);
+    renderGroceryList();
+    renderGrocerySummary();
+    showToast("Four practice ingredients added.");
+    window.setTimeout(() => showTutorialStep(6), 450);
+  }
+
+  function handleTutorialGroceryItem() {
+    if (tutorialState.step !== 6) {
+      showToast("Follow the highlighted tutorial step first.", true);
+      return;
+    }
+    const name = $("#grocery-name").value.trim();
+    const category = $("#grocery-category").value;
+    if (name.toLowerCase() !== "paper towels" || !["cleaning", "household"].includes(category)) {
+      showToast("Use Paper Towels and Cleaning supplies (or Household) for this practice item.", true);
+      return;
+    }
+
+    const item = {
+      id: "tutorial-grocery-paper-towels",
+      household_id: "tutorial",
+      created_by: state.user.id,
+      name: "Paper Towels",
+      category,
+      quantity: nullIfEmpty($("#grocery-quantity").value),
+      estimated_price: $("#grocery-estimate").value === "" ? null : Number($("#grocery-estimate").value),
+      actual_price: null,
+      is_collected: false,
+      is_sale: false,
+      source: "manual",
+      created_at: new Date().toISOString()
+    };
+    tutorialState.groceryItems = tutorialState.groceryItems.filter((entry) => entry.id !== item.id);
+    tutorialState.groceryItems.push(item);
+    tutorialState.completedSteps.add(6);
+    renderGroceryList();
+    renderGrocerySummary();
+    showToast("Practice grocery item added.");
+    window.setTimeout(() => showTutorialStep(7), 450);
+  }
+
+  function handleTutorialGroceryAction(button) {
+    const item = tutorialState.groceryItems.find((entry) => entry.id === button.dataset.id);
+    if (!item) return;
+    if (button.dataset.action !== "collect-grocery" || item.name !== "Ground Beef") {
+      blockTutorialProductionWrite("unexpected grocery change");
+      return;
+    }
+    if (tutorialState.step !== 7) {
+      showToast("Collect Ground Beef when the tutorial highlights it.", true);
+      return;
+    }
+
+    $("#tutorial-actual-price").value = "6.99";
+    $("#tutorial-sale-price").checked = false;
+    openTutorialDialog($("#tutorial-price-dialog"));
+    window.setTimeout(() => $("#tutorial-actual-price").focus(), 0);
+  }
+
+  function completeTutorialGroceryCollection(event) {
+    event.preventDefault();
+    if (!isTutorialMode() || tutorialState.step !== 7) return;
+    const item = tutorialState.groceryItems.find((entry) => entry.name === "Ground Beef");
+    if (!item) return;
+    const price = Number($("#tutorial-actual-price").value);
+    if (!Number.isFinite(price) || Math.abs(price - 6.99) > 0.001) {
+      showToast("Enter $6.99 for this practice item.", true);
+      return;
+    }
+    item.is_collected = true;
+    item.actual_price = 6.99;
+    item.is_sale = $("#tutorial-sale-price").checked;
+    item.collected_at = new Date().toISOString();
+    tutorialState.completedSteps.add(7);
+    closeTutorialDialog($("#tutorial-price-dialog"));
+    renderGroceryList();
+    renderGrocerySummary();
+    showToast("Ground Beef collected for $6.99.");
+    window.setTimeout(() => showTutorialStep(8), 450);
+  }
+
+  function closeTutorialPriceDialog() {
+    closeTutorialDialog($("#tutorial-price-dialog"));
+    window.setTimeout(() => tutorialTargetElement?.focus({ preventScroll: true }), 0);
+  }
+
+  function requestTutorialExit() {
+    if (!isTutorialMode()) return;
+    openTutorialDialog($("#tutorial-exit-dialog"));
+    window.setTimeout(() => $("#tutorial-keep-learning").focus(), 0);
+  }
+
+  function keepLearning() {
+    closeTutorialDialog($("#tutorial-exit-dialog"));
+    window.setTimeout(() => $("#tutorial-panel").focus(), 0);
+  }
+
+  function confirmTutorialExit() {
+    closeTutorialDialog($("#tutorial-exit-dialog"));
+    discardTutorialSession(true);
+    showToast("Practice progress discarded. You can restart from Settings anytime.");
+  }
+
+  async function finishTutorial() {
+    const button = $("#tutorial-primary-button");
+    setBusy(button, true, "Finishing...");
+    const saved = await saveTutorialStatus({ promptSeen: true, completed: true });
+    setBusy(button, false);
+    if (!saved) return;
+    discardTutorialSession(true);
+    showToast("Tutorial complete!");
+  }
+
+  function restartTutorial() {
+    if (!isTutorialMode()) return;
+    const originalFocus = tutorialState.previousFocus;
+    discardTutorialSession(false);
+    beginTutorialSession(originalFocus);
+  }
+
+  function discardTutorialSession(renderRealApp = true) {
+    const wasActive = isTutorialMode();
+    if (tutorialPositionFrame !== null) {
+      window.cancelAnimationFrame(tutorialPositionFrame);
+      tutorialPositionFrame = null;
+    }
+    clearTutorialTarget();
+    tutorialState = createEmptyTutorialState();
+    document.body.classList.remove("tutorial-active");
+    $("#tutorial-mode-banner")?.classList.add("hidden");
+    $("#tutorial-panel")?.classList.add("hidden");
+    $("#tutorial-spotlight")?.classList.add("hidden");
+    closeTutorialDialog($("#tutorial-welcome-dialog"));
+    closeTutorialDialog($("#tutorial-exit-dialog"));
+    closeTutorialDialog($("#tutorial-price-dialog"));
+
+    if (wasActive && state.household && state.membership) {
+      resetPurchaseForm();
+      resetRecipeForm();
+      $("#grocery-form").reset();
+      $("#purchase-month-filter").value = currentMonthValue();
+      $("#purchase-category-filter").value = "all";
+      $("#recipe-search").value = "";
+      $("#grocery-filter").value = "all";
+      renderAll();
+    }
+    if (renderRealApp && wasActive && state.household && state.membership) {
+      navigate("dashboard");
+      schedulePurchaseSummaryCheck();
+      window.setTimeout(() => {
+        $("#topbar-refresh")?.focus();
+      }, 0);
+    }
+  }
+
+  function openTutorialDialog(dialog) {
+    if (!dialog || dialog.open) return;
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+  }
+
+  function closeTutorialDialog(dialog) {
+    if (!dialog) return;
+    if (dialog.open && typeof dialog.close === "function") dialog.close();
+    else dialog.removeAttribute("open");
+  }
+
+  function clearTutorialTarget() {
+    tutorialTargetElement?.classList.remove("tutorial-target");
+    tutorialTargetElement = null;
+    const spotlight = $("#tutorial-spotlight");
+    const panel = $("#tutorial-panel");
+    spotlight?.classList.add("hidden");
+    if (panel) {
+      panel.classList.remove("is-positioned");
+      panel.style.removeProperty("top");
+      panel.style.removeProperty("left");
+    }
+  }
+
+  function setTutorialTarget(selector, focusSelector = selector) {
+    clearTutorialTarget();
+    if (!selector || !isTutorialMode()) {
+      $(focusSelector || "#tutorial-panel")?.focus({ preventScroll: true });
+      return;
+    }
+    tutorialTargetElement = $(selector);
+    if (!tutorialTargetElement) return;
+    tutorialTargetElement.classList.add("tutorial-target");
+    tutorialTargetElement.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center", inline: "nearest" });
+    window.setTimeout(() => {
+      scheduleTutorialPosition();
+      $(focusSelector)?.focus({ preventScroll: true });
+    }, prefersReducedMotion() ? 0 : 260);
+  }
+
+  function scheduleTutorialPosition() {
+    if (!isTutorialMode()) return;
+    if (tutorialPositionFrame !== null) window.cancelAnimationFrame(tutorialPositionFrame);
+    tutorialPositionFrame = window.requestAnimationFrame(() => {
+      tutorialPositionFrame = null;
+      positionTutorialGuidance();
+    });
+  }
+
+  function positionTutorialGuidance() {
+    const target = tutorialTargetElement;
+    const spotlight = $("#tutorial-spotlight");
+    const panel = $("#tutorial-panel");
+    if (!target || !target.isConnected || !isTutorialMode()) {
+      spotlight.classList.add("hidden");
+      panel.classList.remove("is-positioned");
+      panel.style.removeProperty("top");
+      panel.style.removeProperty("left");
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    const padding = 8;
+    const viewport = window.visualViewport;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportWidth = viewport?.width || window.innerWidth;
+    const viewportHeight = viewport?.height || window.innerHeight;
+    const spotlightTop = Math.max(viewportTop, rect.top - padding);
+    const spotlightLeft = Math.max(viewportLeft, rect.left - padding);
+    spotlight.style.top = `${spotlightTop}px`;
+    spotlight.style.left = `${spotlightLeft}px`;
+    spotlight.style.width = `${Math.max(0, Math.min(viewportLeft + viewportWidth - spotlightLeft, rect.width + (padding * 2)))}px`;
+    spotlight.style.height = `${Math.max(0, Math.min(viewportTop + viewportHeight - spotlightTop, rect.height + (padding * 2)))}px`;
+    spotlight.classList.remove("hidden");
+
+    panel.classList.add("is-positioned");
+    const panelRect = panel.getBoundingClientRect();
+    const edge = 8;
+    const gap = 14;
+    const leftEdge = viewportLeft + edge;
+    const rightEdge = viewportLeft + viewportWidth - edge;
+    const topEdge = viewportTop + edge;
+    const bottomEdge = viewportTop + viewportHeight - edge;
+    const left = Math.min(Math.max(rect.left, leftEdge), Math.max(leftEdge, rightEdge - panelRect.width));
+    let top = rect.bottom + gap;
+    if (top + panelRect.height > bottomEdge) top = rect.top - panelRect.height - gap;
+    top = Math.min(Math.max(top, topEdge), Math.max(topEdge, bottomEdge - panelRect.height));
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+  }
+
+  function prefersReducedMotion() {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+  }
+
+  function preferredScrollBehavior() {
+    return prefersReducedMotion() ? "auto" : "smooth";
   }
 
 
@@ -1632,7 +2484,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     const titles = { dashboard: "Dashboard", purchases: "Purchases", recipes: "Recipes", planner: "Meal Planner", grocery: "Grocery List", settings: "Settings" };
     $("#page-title").textContent = titles[page] || "Household Hub";
     $("#topbar-add").classList.toggle("hidden", page !== "dashboard" && page !== "purchases");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: preferredScrollBehavior() });
     scheduleNavigationHide(1800);
   }
 

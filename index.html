@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#344D36">
   <meta name="description" content="A private shared household purchase tracker, recipe book, and seven-meal planner.">
   <title>Our Household Hub</title>
-  <link rel="stylesheet" href="styles.css?v=20260807-1">
+  <link rel="stylesheet" href="styles.css?v=20260808-1">
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -109,6 +109,14 @@
     </header>
 
     <div class="content-wrap">
+      <aside id="tutorial-mode-banner" class="tutorial-mode-banner hidden" aria-label="Tutorial practice mode">
+        <div>
+          <strong>Practice Mode</strong>
+          <span>Nothing you do here will affect your real household.</span>
+        </div>
+        <button id="tutorial-exit-button" class="secondary-button" type="button">Exit Tutorial</button>
+      </aside>
+
       <section id="page-dashboard" class="page active" data-page="dashboard">
         <div class="welcome-row">
           <div>
@@ -375,7 +383,7 @@
               <div class="money-input"><span>$</span><input id="grocery-estimate" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
             </label>
             <div class="form-actions full-width">
-              <button class="primary-button" type="submit">Add to list</button>
+              <button id="grocery-submit" class="primary-button" type="submit">Add to list</button>
             </div>
           </form>
         </section>
@@ -505,6 +513,22 @@
           </label>
         </section>
 
+        <section id="tutorial-help-section" class="section-card tutorial-help-section" aria-labelledby="tutorial-help-title">
+          <p class="eyebrow">Help &amp; Tutorial</p>
+          <h2 id="tutorial-help-title">Help &amp; Tutorial</h2>
+          <p class="muted">Learn how to use Household Hub with a hands-on walkthrough.</p>
+          <div class="tutorial-help-card">
+            <div>
+              <h3>Interactive Tutorial</h3>
+              <p>Practice adding purchases, recipes, and grocery items using safe sample data.</p>
+              <p id="tutorial-help-status" class="tutorial-help-status" aria-live="polite"></p>
+              <p id="tutorial-help-completed-at" class="muted small hidden"></p>
+            </div>
+            <button id="tutorial-start-button" class="primary-button" type="button" aria-describedby="tutorial-help-note">Start Tutorial</button>
+          </div>
+          <p id="tutorial-help-note" class="muted small tutorial-help-note">Tutorial actions do not affect your real household data.</p>
+        </section>
+
         <section class="section-card">
           <div class="section-heading">
             <div>
@@ -544,6 +568,67 @@
       </div>
     </dialog>
 
+    <dialog id="tutorial-welcome-dialog" class="tutorial-modal" aria-modal="true" aria-labelledby="tutorial-welcome-title" aria-describedby="tutorial-welcome-message">
+      <div class="tutorial-modal-copy">
+        <p class="eyebrow">Getting started</p>
+        <h2 id="tutorial-welcome-title">Welcome to Household Hub! 👋</h2>
+        <p id="tutorial-welcome-message" class="muted">Would you like a quick interactive tutorial to learn how purchases, recipes, and grocery lists work?</p>
+      </div>
+      <div class="tutorial-modal-actions">
+        <button id="tutorial-welcome-later" class="secondary-button" type="button">Maybe Later</button>
+        <button id="tutorial-welcome-start" class="primary-button" type="button">Start Tutorial</button>
+      </div>
+    </dialog>
+
+    <div id="tutorial-spotlight" class="tutorial-spotlight hidden" aria-hidden="true"></div>
+    <aside id="tutorial-panel" class="tutorial-panel hidden" role="dialog" aria-modal="false" tabindex="-1" aria-labelledby="tutorial-panel-title" aria-describedby="tutorial-panel-copy">
+      <div class="tutorial-panel-progress">
+        <span id="tutorial-step-label">Step 1 of 9</span>
+        <progress id="tutorial-progress" value="1" max="9">1 of 9</progress>
+      </div>
+      <div class="tutorial-panel-copy">
+        <h2 id="tutorial-panel-title">Welcome to your Household Hub!</h2>
+        <div id="tutorial-panel-copy" class="muted"></div>
+      </div>
+      <div class="tutorial-panel-actions">
+        <button id="tutorial-back-button" class="secondary-button hidden" type="button">Back</button>
+        <button id="tutorial-skip-button" class="text-button" type="button">Skip Tutorial</button>
+        <button id="tutorial-restart-button" class="secondary-button hidden" type="button">Restart Tutorial</button>
+        <button id="tutorial-primary-button" class="primary-button" type="button">Let's Go</button>
+      </div>
+    </aside>
+    <div id="tutorial-announcement" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+    <dialog id="tutorial-price-dialog" class="tutorial-modal" aria-modal="true" aria-labelledby="tutorial-price-title" aria-describedby="tutorial-price-message">
+      <form id="tutorial-price-form">
+        <div class="tutorial-modal-copy">
+          <p class="eyebrow">Practice grocery</p>
+          <h2 id="tutorial-price-title">Collect Ground Beef</h2>
+          <p id="tutorial-price-message" class="muted">Enter the actual price paid. Use $6.99 for this tutorial.</p>
+          <label class="tutorial-price-label" for="tutorial-actual-price">Actual price
+            <span class="money-input"><span>$</span><input id="tutorial-actual-price" type="number" min="0" step="0.01" inputmode="decimal" required value="6.99"></span>
+          </label>
+          <label class="check-card tutorial-sale-check"><input id="tutorial-sale-price" type="checkbox"><span>Sale price</span></label>
+        </div>
+        <div class="tutorial-modal-actions">
+          <button id="tutorial-price-cancel" class="secondary-button" type="button">Cancel</button>
+          <button id="tutorial-price-save" class="primary-button" type="submit">Save Price</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="tutorial-exit-dialog" class="tutorial-modal" aria-modal="true" aria-labelledby="tutorial-exit-title" aria-describedby="tutorial-exit-message">
+      <div class="tutorial-modal-copy">
+        <p class="eyebrow">Practice Mode</p>
+        <h2 id="tutorial-exit-title">Exit tutorial?</h2>
+        <p id="tutorial-exit-message" class="muted">Your practice progress will be discarded. You can restart the tutorial anytime from Settings.</p>
+      </div>
+      <div class="tutorial-modal-actions">
+        <button id="tutorial-keep-learning" class="secondary-button" type="button">Keep Learning</button>
+        <button id="tutorial-confirm-exit" class="danger-button" type="button">Exit Tutorial</button>
+      </div>
+    </dialog>
+
     <button id="nav-toggle" class="nav-toggle" type="button" aria-label="Show navigation" aria-expanded="true">⌄</button>
     <nav class="bottom-nav" aria-label="Main navigation">
       <button class="nav-button active" type="button" data-target="dashboard"><span>⌂</span><small>Home</small></button>
@@ -557,6 +642,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=20260807-1" defer></script>
+  <script src="app.js?v=20260808-1" defer></script>
 </body>
 </html>

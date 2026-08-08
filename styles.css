@@ -401,6 +401,10 @@ body,
 .nav-toggle,
 .nav-button,
 .theme-card,
+.tutorial-mode-banner,
+.tutorial-help-card,
+.tutorial-panel,
+.tutorial-modal,
 input,
 select,
 textarea {
@@ -525,6 +529,209 @@ textarea {
 .purchase-summary-actions { display: flex; flex: 0 0 auto; gap: .55rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
+/* Interactive tutorial */
+.tutorial-mode-banner {
+  position: sticky;
+  top: 4.5rem;
+  z-index: 75;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .9rem;
+  margin: 0 0 1rem;
+  padding: .85rem .95rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--accent-soft), var(--surface));
+  color: var(--text);
+  box-shadow: 0 10px 28px var(--shadow-color);
+}
+.tutorial-mode-banner > div {
+  min-width: 0;
+  display: grid;
+  gap: .1rem;
+}
+.tutorial-mode-banner strong,
+.tutorial-mode-banner span { overflow-wrap: anywhere; }
+.tutorial-mode-banner span { color: var(--muted-text); font-size: .82rem; }
+.tutorial-mode-banner .secondary-button { flex: 0 0 auto; background: var(--surface); }
+
+.tutorial-help-section { overflow: hidden; }
+.tutorial-help-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+}
+.tutorial-help-card > div { min-width: 0; }
+.tutorial-help-card h3 { margin: 0 0 .28rem; overflow-wrap: anywhere; }
+.tutorial-help-card p { margin: 0; overflow-wrap: anywhere; }
+.tutorial-help-card > .primary-button { min-width: 132px; }
+.tutorial-help-status:not(:empty) {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: .65rem;
+  padding: .3rem .55rem;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  font-size: .75rem;
+  font-weight: 850;
+}
+.tutorial-help-card #tutorial-help-completed-at { margin-top: .45rem; }
+.tutorial-help-note { margin: .85rem 0 0; overflow-wrap: anywhere; }
+
+.tutorial-modal {
+  width: min(calc(100% - 2rem), 520px);
+  max-width: 520px;
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 24px 70px var(--shadow-color);
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+}
+.tutorial-modal[open] { display: grid; }
+.tutorial-modal::backdrop {
+  background: var(--shadow-color);
+  backdrop-filter: blur(2px);
+}
+.tutorial-modal-copy {
+  min-width: 0;
+  padding: 1.25rem 1.25rem 1rem;
+}
+.tutorial-modal-copy h2 { margin-bottom: .45rem; overflow-wrap: anywhere; }
+.tutorial-modal-copy p:last-child { margin-bottom: 0; overflow-wrap: anywhere; }
+.tutorial-modal-actions {
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: .65rem;
+  padding: 1rem 1.25rem 1.25rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.tutorial-modal-actions button { min-width: 128px; }
+.tutorial-modal form { min-width: 0; }
+.tutorial-price-label { display: grid; gap: .4rem; margin-top: 1rem; font-weight: 800; }
+.tutorial-price-label .money-input { width: 100%; }
+.tutorial-sale-check { width: fit-content; max-width: 100%; margin-top: .8rem; }
+
+.tutorial-spotlight {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: transparent;
+  outline: 4px solid var(--accent-soft);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 9999px var(--shadow-color);
+  animation: tutorial-spotlight-pulse 1.8s ease-in-out infinite;
+  transition: top .2s ease, left .2s ease, width .2s ease, height .2s ease, border-color .25s ease, box-shadow .25s ease;
+}
+@keyframes tutorial-spotlight-pulse {
+  50% { outline-width: 7px; outline-offset: 3px; }
+}
+
+.tutorial-panel {
+  position: fixed;
+  left: 50%;
+  bottom: calc(6.4rem + var(--safe-bottom));
+  z-index: 90;
+  width: min(calc(100vw - 2rem), 390px);
+  max-width: 390px;
+  max-height: min(46dvh, 26rem);
+  min-width: 0;
+  display: grid;
+  gap: .9rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 22px 62px var(--shadow-color);
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  transform: translateX(-50%);
+}
+.tutorial-panel.is-positioned {
+  right: auto;
+  bottom: auto;
+  transform: none;
+}
+.tutorial-panel:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+.tutorial-panel-progress {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: .7rem;
+  color: var(--muted-text);
+  font-size: .74rem;
+  font-weight: 850;
+}
+.tutorial-panel-progress span { white-space: nowrap; }
+.tutorial-panel-progress progress {
+  width: 100%;
+  height: .55rem;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2);
+  accent-color: var(--primary);
+}
+.tutorial-panel-progress progress::-webkit-progress-bar { background: var(--surface-2); }
+.tutorial-panel-progress progress::-webkit-progress-value { background: var(--primary); border-radius: 999px; }
+.tutorial-panel-progress progress::-moz-progress-bar { background: var(--primary); border-radius: 999px; }
+.tutorial-panel-copy { min-width: 0; }
+.tutorial-panel-copy h2 { margin-bottom: .42rem; overflow-wrap: anywhere; }
+.tutorial-panel-copy p,
+.tutorial-panel-copy li,
+.tutorial-panel-copy div { overflow-wrap: anywhere; }
+.tutorial-panel-copy > :last-child { margin-bottom: 0; }
+.tutorial-panel-actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .55rem;
+}
+.tutorial-panel-actions button {
+  min-width: 0;
+  min-height: 44px;
+  flex: 1 1 8rem;
+  overflow-wrap: anywhere;
+}
+.tutorial-panel-actions .text-button {
+  padding: .72rem .65rem;
+  border: 1px solid transparent;
+  border-radius: 12px;
+}
+.tutorial-active .recipe-card-footer { flex-wrap: wrap; gap: .6rem; }
+.tutorial-ingredient-button { max-width: 100%; overflow-wrap: anywhere; }
+
+.tutorial-target { scroll-margin-block: 7rem 15rem; }
+.tutorial-mode-banner button:focus-visible,
+.tutorial-help-card button:focus-visible,
+.tutorial-modal button:focus-visible,
+.tutorial-panel button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
 @media (max-width: 520px) {
   .topbar { gap: .65rem; }
   .topbar-actions { gap: .4rem; }
@@ -541,6 +748,42 @@ textarea {
   .purchase-summary-footer { align-items: stretch; flex-direction: column; padding: .85rem 1rem 1rem; }
   .purchase-summary-actions { width: 100%; }
   .purchase-summary-actions button { flex: 1 1 0; min-width: 0; }
+
+  .tutorial-mode-banner {
+    top: 4.25rem;
+    align-items: stretch;
+    flex-direction: column;
+    gap: .7rem;
+    padding: .8rem;
+  }
+  .tutorial-mode-banner .secondary-button { width: 100%; }
+  .tutorial-help-card { grid-template-columns: minmax(0, 1fr); padding: .85rem; }
+  .tutorial-help-card > .primary-button { width: 100%; min-width: 0; }
+  .tutorial-modal {
+    width: calc(100% - 1rem);
+    max-height: calc(100dvh - 1rem);
+    border-radius: 18px;
+  }
+  .tutorial-modal-copy { padding: 1rem 1rem .8rem; }
+  .tutorial-modal-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+    padding: .85rem 1rem 1rem;
+  }
+  .tutorial-modal-actions button { width: 100%; min-width: 0; }
+  .tutorial-panel {
+    bottom: calc(6.1rem + var(--safe-bottom));
+    width: calc(100vw - 1rem);
+    max-width: calc(100vw - 1rem);
+    max-height: min(48dvh, 25rem);
+    gap: .75rem;
+    padding: .85rem;
+    border-radius: 18px;
+  }
+  .tutorial-panel.is-positioned { bottom: auto; }
+  .tutorial-panel-actions { gap: .45rem; }
+  .tutorial-panel-actions button { flex-basis: calc(50% - .25rem); }
+  .tutorial-ingredient-button { width: 100%; }
 
   .section-heading { align-items: flex-start; flex-wrap: wrap; gap: .45rem .8rem; }
   .section-heading .text-button { flex: 0 0 auto; }
@@ -789,6 +1032,8 @@ textarea {
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+  .tutorial-spotlight { animation: none; transition: none; }
+  .tutorial-panel { transition: none; }
   *, *::before, *::after {
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
