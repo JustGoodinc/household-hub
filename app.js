@@ -52,11 +52,16 @@
   let tutorialState = createEmptyTutorialState();
   let tutorialTargetElement = null;
   let tutorialPositionFrame = null;
+  let tutorialPanelHomeParent = null;
+  let tutorialPanelHomeNextSibling = null;
+  let mobileTutorialHost = null;
+  let tutorialMobileLayout = null;
 
   document.addEventListener("DOMContentLoaded", init);
 
   async function init() {
     applyTheme(DEFAULT_THEME);
+    rememberTutorialPanelHome();
     bindEvents();
     setupAutoHideNavigation();
     setDefaultDates();
@@ -189,10 +194,10 @@
       event.preventDefault();
       keepLearning();
     });
-    window.addEventListener("resize", scheduleTutorialPosition);
-    window.addEventListener("scroll", scheduleTutorialPosition, { passive: true });
-    window.visualViewport?.addEventListener("resize", scheduleTutorialPosition);
-    window.visualViewport?.addEventListener("scroll", scheduleTutorialPosition);
+    window.addEventListener("resize", handleTutorialViewportChange);
+    window.addEventListener("scroll", handleTutorialViewportScroll, { passive: true });
+    window.visualViewport?.addEventListener("resize", handleTutorialViewportChange);
+    window.visualViewport?.addEventListener("scroll", handleTutorialViewportScroll, { passive: true });
   }
 
   async function handleSession(session) {
@@ -511,6 +516,7 @@
     $("#recipe-count").textContent = allRecipes.length;
     $("#recipe-enabled-count").textContent = `${enabledCount} enabled for random plans`;
     const container = $("#recipe-list");
+    preserveTutorialPanelBeforeRender(container);
 
     if (!recipes.length) {
       container.className = "recipe-grid empty-state";
@@ -1575,6 +1581,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   function renderGroceryList() {
     const container = $("#grocery-list");
     if (!container) return;
+    preserveTutorialPanelBeforeRender(container);
     const filter = $("#grocery-filter")?.value || "all";
     const items = displayedGroceryItems().filter((item) => filter === "all" || (filter === "collected" ? item.is_collected : !item.is_collected));
     if (!items.length) {
@@ -1880,6 +1887,8 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       return false;
     }
     const previousFocus = previousFocusOverride || document.activeElement;
+    restoreTutorialPanelHome(true);
+    tutorialMobileLayout = null;
     tutorialState = createEmptyTutorialState();
     tutorialState.active = true;
     tutorialState.previousFocus = previousFocus;
@@ -1916,12 +1925,14 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
         page: "dashboard",
         title: "Welcome to your Household Hub!",
         copy: "<p>You can track household spending, save recipes, plan meals, and manage your grocery list all in one place.</p>",
+        mobileCopy: "<p>Track spending, recipes, meals, and groceries in one place.</p>",
         primary: "Let's Go"
       },
       {
         page: "purchases",
         title: "Let's add a practice purchase.",
         copy: "<p>The sample fields are ready for you:</p><ul><li><strong>Amount:</strong> $24.50</li><li><strong>Category:</strong> Entertainment</li><li><strong>Store:</strong> Movie Night</li></ul><p>Review them, then press the normal <strong>Add Purchase</strong> button.</p>",
+        mobileCopy: "<p><strong>$24.50 &bull; Entertainment &bull; Movie Night</strong></p><p>Tap Add Purchase to continue.</p>",
         target: "#purchase-submit",
         interactive: true
       },
@@ -1929,6 +1940,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
         page: "dashboard",
         title: "Great! Your totals updated.",
         copy: "<p>Purchases are shared with your household and automatically count toward monthly totals.</p><p>The Entertainment total and average now show <strong>$24.50</strong>.</p>",
+        mobileCopy: "<p>Your Entertainment total and average now show <strong>$24.50</strong>.</p>",
         target: ".entertainment-card",
         primary: "Continue"
       },
@@ -1936,6 +1948,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
         page: "recipes",
         title: "Now let's save a recipe.",
         copy: "<p>The form contains <strong>Taco Night</strong>, both household cooks, and four ingredients. Review it, then press <strong>Save recipe</strong>.</p>",
+        mobileCopy: "<p>Review Taco Night, both cooks, and four ingredients, then tap <strong>Save recipe</strong>.</p>",
         target: "#recipe-submit",
         interactive: true
       },
@@ -1943,6 +1956,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
         page: "recipes",
         title: "Control recipe availability.",
         copy: "<p>Recipes can be used in your meal planner, and their ingredients can be sent to your grocery list.</p><p>Toggle Taco Night <strong>off</strong>, then turn it <strong>back on</strong>. Enabled recipes can be selected when Household Hub randomizes meals. Manual meal selection keeps following the app's normal saved-recipe behavior.</p>",
+        mobileCopy: "<p>Turn Taco Night <strong>off</strong>, then turn it <strong>back on</strong>.</p>",
         target: "[data-tutorial-target='recipe-toggle']",
         interactive: true
       },
@@ -1950,6 +1964,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
         page: "recipes",
         title: "Send ingredients to groceries.",
         copy: "<p>Press <strong>Add Ingredients to Grocery List</strong> on Taco Night. Its four practice ingredients will be added without contacting Supabase.</p>",
+        mobileCopy: "<p>Tap <strong>Add Ingredients to Grocery List</strong> on Taco Night.</p>",
         target: "[data-tutorial-target='recipe-ingredients-import']",
         interactive: true
       },
@@ -1957,6 +1972,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
         page: "grocery",
         title: "You can also add anything manually.",
         copy: "<p><strong>Paper Towels</strong> is ready with the <strong>Cleaning supplies</strong> category. Press <strong>Add to list</strong>.</p>",
+        mobileCopy: "<p>Review <strong>Paper Towels</strong> and <strong>Cleaning supplies</strong>, then tap <strong>Add to list</strong>.</p>",
         target: "#grocery-submit",
         interactive: true
       },
@@ -1964,6 +1980,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
         page: "grocery",
         title: "Collect a grocery item.",
         copy: "<p>Check off <strong>Ground Beef</strong> and enter <strong>$6.99</strong> as the actual price.</p><p>Household Hub can compare what you planned to spend with what you actually spent.</p>",
+        mobileCopy: "<p>Check <strong>Ground Beef</strong> and record <strong>$6.99</strong>.</p>",
         target: "[data-tutorial-target='ground-beef-collect']",
         interactive: true
       },
@@ -1971,6 +1988,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
         page: "dashboard",
         title: "You're ready! 🎉",
         copy: "<p>You just learned how to:</p><ul class='tutorial-completion-list'><li>✓ Add a purchase</li><li>✓ Track category totals</li><li>✓ Save a recipe</li><li>✓ Control recipe availability</li><li>✓ Send recipe ingredients to groceries</li><li>✓ Add grocery items manually</li><li>✓ Record the actual price when shopping</li></ul>",
+        mobileCopy: "<p>You practiced purchases, totals, recipes, ingredient importing, and grocery costs.</p>",
         primary: "Finish Tutorial"
       }
     ][step];
@@ -2004,25 +2022,35 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   function showTutorialStep(step) {
     if (!isTutorialMode()) return;
     const nextStep = Math.max(0, Math.min(step, TUTORIAL_TOTAL_STEPS - 1));
+    restoreTutorialPanelHome();
     tutorialState.step = nextStep;
     prepareTutorialStep(nextStep);
     renderTutorialViews();
     const definition = tutorialStepDefinition(nextStep);
+    const mobileLayout = isMobileTutorialLayout();
+    const stepCopy = mobileLayout ? definition.mobileCopy || definition.copy : definition.copy;
     navigate(definition.page);
 
     $("#tutorial-step-label").textContent = `Step ${nextStep + 1} of ${TUTORIAL_TOTAL_STEPS}`;
     $("#tutorial-progress").value = nextStep + 1;
     $("#tutorial-progress").textContent = `${nextStep + 1} of ${TUTORIAL_TOTAL_STEPS}`;
     $("#tutorial-panel-title").textContent = definition.title;
-    $("#tutorial-panel-copy").innerHTML = definition.copy;
-    $("#tutorial-back-button").classList.toggle("hidden", nextStep === 0);
+    $("#tutorial-panel-copy").innerHTML = stepCopy;
+    const backButton = $("#tutorial-back-button");
+    backButton.classList.toggle("hidden", nextStep === 0);
+    backButton.textContent = mobileLayout ? "\u2190 Back" : "Back";
+    $("#tutorial-skip-button").textContent = mobileLayout ? "Skip" : "Skip Tutorial";
     $("#tutorial-restart-button").classList.toggle("hidden", nextStep !== TUTORIAL_TOTAL_STEPS - 1);
     const actionReady = !definition.interactive || tutorialState.completedSteps.has(nextStep);
     const primary = $("#tutorial-primary-button");
     primary.classList.toggle("hidden", !actionReady);
-    primary.textContent = definition.primary || "Continue";
+    const primaryLabel = definition.primary || "Continue";
+    primary.textContent = mobileLayout && (primaryLabel === "Continue" || primaryLabel === "Let's Go")
+      ? `${primaryLabel} \u2192`
+      : primaryLabel;
     $("#tutorial-panel").classList.remove("hidden");
     $("#tutorial-announcement").textContent = `${$("#tutorial-step-label").textContent}. ${definition.title} ${$("#tutorial-panel-copy").textContent}`;
+    tutorialMobileLayout = mobileLayout;
     setTutorialTarget(
       definition.target || null,
       definition.interactive ? definition.target : "#tutorial-primary-button"
@@ -2298,6 +2326,8 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       tutorialPositionFrame = null;
     }
     clearTutorialTarget();
+    restoreTutorialPanelHome(true);
+    tutorialMobileLayout = null;
     $("#tutorial-mode-banner")?.classList.add("hidden");
     $("#tutorial-panel")?.classList.add("hidden");
     $("#tutorial-spotlight")?.classList.add("hidden");
@@ -2344,11 +2374,99 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     else dialog.removeAttribute("open");
   }
 
+  function rememberTutorialPanelHome() {
+    const panel = $("#tutorial-panel");
+    if (!panel || tutorialPanelHomeParent) return;
+    tutorialPanelHomeParent = panel.parentNode;
+    tutorialPanelHomeNextSibling = panel.nextSibling;
+  }
+
+  function restoreTutorialPanelHome(removeHost = false) {
+    const panel = $("#tutorial-panel") || mobileTutorialHost?.querySelector("#tutorial-panel");
+    if (panel && tutorialPanelHomeParent) {
+      if (tutorialPanelHomeNextSibling?.parentNode === tutorialPanelHomeParent) {
+        tutorialPanelHomeParent.insertBefore(panel, tutorialPanelHomeNextSibling);
+      } else {
+        tutorialPanelHomeParent.appendChild(panel);
+      }
+      panel.style.removeProperty("position");
+      panel.style.removeProperty("inset");
+      panel.style.removeProperty("width");
+      panel.style.removeProperty("max-width");
+      panel.style.removeProperty("max-height");
+      panel.style.removeProperty("margin");
+      panel.style.removeProperty("transform");
+      panel.style.removeProperty("z-index");
+    }
+    mobileTutorialHost?.remove();
+    if (removeHost) mobileTutorialHost = null;
+  }
+
+  function preserveTutorialPanelBeforeRender(container) {
+    if (mobileTutorialHost && container?.contains(mobileTutorialHost)) {
+      restoreTutorialPanelHome();
+    }
+  }
+
+  function isMobileTutorialLayout() {
+    return window.matchMedia("(max-width: 700px)").matches;
+  }
+
+  function mobileTutorialPlacement(step, requestedSelector) {
+    let target = requestedSelector ? $(requestedSelector) : null;
+    let container = null;
+    if (step === 1) {
+      target = $("#purchase-submit");
+      container = $("#purchase-form .form-actions");
+    } else if (step === 0 || step === 8) {
+      container = $("#page-dashboard .welcome-row");
+    } else if (step === 2) {
+      container = $("#page-dashboard .summary-grid");
+    } else if (step === 3) {
+      container = $("#recipe-form .form-actions");
+    } else if (step === 4 || step === 5) {
+      container = target?.closest(".recipe-card-footer") || target?.closest(".recipe-card");
+    } else if (step === 6) {
+      container = $("#grocery-form .form-actions");
+    } else if (step === 7) {
+      container = target?.closest(".grocery-item");
+    }
+    return { target, container: container || target || $(".page.active") };
+  }
+
+  function placeMobileTutorialPanel(step, selector, focusSelector) {
+    const panel = $("#tutorial-panel");
+    const spotlight = $("#tutorial-spotlight");
+    if (!panel) return;
+
+    const { target, container } = mobileTutorialPlacement(step, selector);
+    mobileTutorialHost ||= document.createElement("div");
+    mobileTutorialHost.className = "mobile-tutorial-host";
+    mobileTutorialHost.dataset.tutorialStep = String(step + 1);
+    container?.parentNode?.insertBefore(mobileTutorialHost, container);
+    mobileTutorialHost.appendChild(panel);
+
+    panel.classList.remove("is-positioned");
+    spotlight?.classList.add("hidden");
+
+    tutorialTargetElement = target;
+    if (target) {
+      target.classList.add("tutorial-target", "tutorial-target-active");
+    }
+
+    const scrollTarget = mobileTutorialHost || container || target;
+    scrollTarget?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start", inline: "nearest" });
+    window.setTimeout(() => {
+      const focusTarget = $(focusSelector) || target || $("#tutorial-primary-button") || panel;
+      focusTarget?.focus({ preventScroll: true });
+    }, prefersReducedMotion() ? 0 : 180);
+  }
+
   function clearTutorialTarget() {
-    tutorialTargetElement?.classList.remove("tutorial-target");
+    tutorialTargetElement?.classList.remove("tutorial-target", "tutorial-target-active");
     tutorialTargetElement = null;
     const spotlight = $("#tutorial-spotlight");
-    const panel = $("#tutorial-panel");
+    const panel = $("#tutorial-panel") || mobileTutorialHost?.querySelector("#tutorial-panel");
     spotlight?.classList.add("hidden");
     if (panel) {
       panel.classList.remove("is-positioned");
@@ -2360,6 +2478,11 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   function setTutorialTarget(selector, focusSelector = selector) {
     clearTutorialTarget();
+    if (isMobileTutorialLayout() && isTutorialMode()) {
+      placeMobileTutorialPanel(tutorialState.step, selector, focusSelector);
+      return;
+    }
+    restoreTutorialPanelHome();
     if (!selector || !isTutorialMode()) {
       $(focusSelector || "#tutorial-panel")?.focus({ preventScroll: true });
       return;
@@ -2375,7 +2498,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
   }
 
   function scheduleTutorialPosition() {
-    if (!isTutorialMode()) return;
+    if (!isTutorialMode() || isMobileTutorialLayout()) return;
     if (tutorialPositionFrame !== null) window.cancelAnimationFrame(tutorialPositionFrame);
     tutorialPositionFrame = window.requestAnimationFrame(() => {
       tutorialPositionFrame = null;
@@ -2383,7 +2506,30 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     });
   }
 
+  function handleTutorialViewportChange() {
+    if (!isTutorialMode()) return;
+    const mobileLayout = isMobileTutorialLayout();
+    if (tutorialMobileLayout !== null && mobileLayout !== tutorialMobileLayout) {
+      if (tutorialPositionFrame !== null) {
+        window.cancelAnimationFrame(tutorialPositionFrame);
+        tutorialPositionFrame = null;
+      }
+      clearTutorialTarget();
+      restoreTutorialPanelHome();
+      tutorialMobileLayout = mobileLayout;
+      window.requestAnimationFrame(() => showTutorialStep(tutorialState.step));
+      return;
+    }
+    tutorialMobileLayout = mobileLayout;
+    if (!mobileLayout) scheduleTutorialPosition();
+  }
+
+  function handleTutorialViewportScroll() {
+    if (!isMobileTutorialLayout()) scheduleTutorialPosition();
+  }
+
   function positionTutorialGuidance() {
+    if (isMobileTutorialLayout()) return;
     const target = tutorialTargetElement;
     const spotlight = $("#tutorial-spotlight");
     const panel = $("#tutorial-panel");

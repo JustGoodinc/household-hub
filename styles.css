@@ -732,6 +732,143 @@ textarea {
   outline-offset: 3px;
 }
 
+@media (max-width: 700px) {
+  .tutorial-mode-banner {
+    position: static;
+    top: auto;
+    z-index: auto;
+    min-height: 56px;
+    max-height: 70px;
+    align-items: center;
+    flex-direction: row;
+    gap: .5rem;
+    margin-bottom: .65rem;
+    padding: .42rem .5rem;
+    border-radius: 13px;
+    box-shadow: 0 5px 16px var(--shadow-color);
+    overflow: hidden;
+  }
+  .tutorial-mode-banner > div {
+    min-width: 0;
+    gap: 0;
+  }
+  .tutorial-mode-banner strong {
+    font-size: .8rem;
+    line-height: 1.1;
+  }
+  .tutorial-mode-banner span {
+    font-size: .68rem;
+    line-height: 1.15;
+  }
+  .tutorial-mode-banner .secondary-button {
+    width: auto;
+    min-width: 0;
+    min-height: 36px;
+    flex: 0 0 auto;
+    padding: .4rem .65rem;
+    font-size: .76rem;
+    white-space: nowrap;
+  }
+
+  .tutorial-help-card {
+    grid-template-columns: minmax(0, 1fr);
+    padding: .85rem;
+  }
+  .tutorial-help-card > .primary-button {
+    width: auto;
+    min-width: 0;
+    justify-self: start;
+  }
+
+  .tutorial-modal {
+    width: calc(100% - 1rem);
+    max-height: calc(100dvh - 1rem);
+    border-radius: 18px;
+  }
+  .tutorial-modal-copy { padding: 1rem 1rem .8rem; }
+  .tutorial-modal-actions {
+    flex-wrap: wrap;
+    gap: .5rem;
+    padding: .8rem 1rem 1rem;
+  }
+  .tutorial-modal-actions button {
+    width: auto;
+    min-width: 0;
+    min-height: 44px;
+    flex: 1 1 8.25rem;
+  }
+
+  .mobile-tutorial-host {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    display: block;
+    grid-column: 1 / -1;
+    flex: 1 1 100%;
+    margin: .55rem 0;
+    scroll-margin-block: 5rem 9rem;
+  }
+  .mobile-tutorial-host:empty { display: none; }
+
+  .tutorial-panel,
+  .tutorial-panel.is-positioned {
+    position: static;
+    inset: auto !important;
+    z-index: auto;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    max-height: none !important;
+    gap: .55rem;
+    margin: .55rem 0;
+    padding: .68rem;
+    border-radius: 14px;
+    box-shadow: 0 7px 20px var(--shadow-color);
+    overflow: visible;
+    overscroll-behavior: auto;
+    transform: none;
+  }
+  .mobile-tutorial-host > .tutorial-panel { margin: 0; }
+  .tutorial-panel-progress {
+    gap: .5rem;
+    font-size: .68rem;
+  }
+  .tutorial-panel-progress progress { height: .42rem; }
+  .tutorial-panel-copy h2 {
+    margin-bottom: .25rem;
+    font-size: 1rem;
+  }
+  .tutorial-panel-copy { font-size: .82rem; line-height: 1.35; }
+  .tutorial-panel-copy p { margin-bottom: .45rem; }
+  .tutorial-panel-actions {
+    align-items: center;
+    gap: .35rem;
+  }
+  .tutorial-panel-actions button {
+    width: auto;
+    min-height: 44px;
+    flex: 0 1 auto;
+    padding: .52rem .7rem;
+    font-size: .78rem;
+  }
+  .tutorial-panel-actions .text-button { padding: .52rem .65rem; }
+  .tutorial-ingredient-button { width: auto; min-height: 44px; }
+
+  .tutorial-spotlight {
+    display: none !important;
+    outline: 0;
+    box-shadow: none;
+    animation: none;
+    transition: none;
+  }
+  .tutorial-target { scroll-margin-block: 5rem 9rem; }
+  .tutorial-target-active {
+    outline: 3px solid var(--primary);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 5px var(--primary-soft);
+  }
+}
+
 @media (max-width: 520px) {
   .topbar { gap: .65rem; }
   .topbar-actions { gap: .4rem; }
@@ -748,42 +885,6 @@ textarea {
   .purchase-summary-footer { align-items: stretch; flex-direction: column; padding: .85rem 1rem 1rem; }
   .purchase-summary-actions { width: 100%; }
   .purchase-summary-actions button { flex: 1 1 0; min-width: 0; }
-
-  .tutorial-mode-banner {
-    top: 4.25rem;
-    align-items: stretch;
-    flex-direction: column;
-    gap: .7rem;
-    padding: .8rem;
-  }
-  .tutorial-mode-banner .secondary-button { width: 100%; }
-  .tutorial-help-card { grid-template-columns: minmax(0, 1fr); padding: .85rem; }
-  .tutorial-help-card > .primary-button { width: 100%; min-width: 0; }
-  .tutorial-modal {
-    width: calc(100% - 1rem);
-    max-height: calc(100dvh - 1rem);
-    border-radius: 18px;
-  }
-  .tutorial-modal-copy { padding: 1rem 1rem .8rem; }
-  .tutorial-modal-actions {
-    align-items: stretch;
-    flex-direction: column-reverse;
-    padding: .85rem 1rem 1rem;
-  }
-  .tutorial-modal-actions button { width: 100%; min-width: 0; }
-  .tutorial-panel {
-    bottom: calc(6.1rem + var(--safe-bottom));
-    width: calc(100vw - 1rem);
-    max-width: calc(100vw - 1rem);
-    max-height: min(48dvh, 25rem);
-    gap: .75rem;
-    padding: .85rem;
-    border-radius: 18px;
-  }
-  .tutorial-panel.is-positioned { bottom: auto; }
-  .tutorial-panel-actions { gap: .45rem; }
-  .tutorial-panel-actions button { flex-basis: calc(50% - .25rem); }
-  .tutorial-ingredient-button { width: 100%; }
 
   .section-heading { align-items: flex-start; flex-wrap: wrap; gap: .45rem .8rem; }
   .section-heading .text-button { flex: 0 0 auto; }
