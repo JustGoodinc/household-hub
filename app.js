@@ -550,7 +550,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
               <span class="toggle-indicator" aria-hidden="true"></span>
               <span>${enabled ? "Included in random plans" : "Skipped in random plans"}</span>
             </button>
-            ${isTutorialMode() ? `<button class="secondary-button tutorial-ingredient-button" type="button" data-action="tutorial-add-recipe-ingredients" data-id="${recipe.id}" data-tutorial-target="recipe-ingredients-import">Add Ingredients to Grocery List</button>` : ""}
+            <button class="secondary-button recipe-ingredient-button${isTutorialMode() ? " tutorial-ingredient-button" : ""}" type="button" data-action="${isTutorialMode() ? "tutorial-add-recipe-ingredients" : "add-recipe-ingredients"}" data-id="${recipe.id}"${isTutorialMode() ? ' data-tutorial-target="recipe-ingredients-import"' : ""}><span aria-hidden="true">＋</span> Add Ingredients</button>
           </div>
           ${details ? `<details class="recipe-details"><summary>View recipe details</summary><pre>${details}</pre></details>` : ""}
         </article>
@@ -1265,6 +1265,23 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     const recipe = state.recipes.find((item) => item.id === button.dataset.id);
     if (!recipe) return;
 
+    if (button.dataset.action === "add-recipe-ingredients") {
+      const ingredientEntries = recipeIngredientEntries(recipe);
+      if (!ingredientEntries.length) {
+        showToast("This recipe doesn't have any ingredients saved yet.");
+        return;
+      }
+
+      setBusy(button, true, "Adding...");
+      const result = await addIngredientsToGroceryList(ingredientEntries, {
+        operation: "recipe ingredient insert"
+      });
+      setBusy(button, false);
+      if (result.error) return showToast(result.error.message, true);
+      showRecipeIngredientImportResult(result);
+      return;
+    }
+
     if (button.dataset.action === "edit-recipe") {
       $("#recipe-id").value = recipe.id;
       $("#recipe-name").value = recipe.name;
@@ -1593,7 +1610,9 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     container.innerHTML = items.map((item) => {
       const estimate = item.estimated_price == null ? "" : `<span>Est. ${formatCurrency(item.estimated_price)}</span>`;
       const actual = item.actual_price == null ? "" : `<span>Paid ${formatCurrency(item.actual_price)}</span>`;
-      const source = item.source === "recipe" ? `<span class="source-tag">${isTutorialMode() ? "From Taco Night" : "From meal plan"}</span>` : "";
+      const source = item.source === "recipe"
+        ? `<span class="source-tag">${isTutorialMode() ? "From Taco Night" : (item.meal_plan_week_start ? "From meal plan" : "From recipe")}</span>`
+        : "";
       const sale = item.is_sale ? `<span class="sale-tag">Sale</span>` : "";
       const tutorialTarget = isTutorialMode() && item.name === "Ground Beef" ? ' data-tutorial-target="ground-beef-collect"' : "";
       return `<article class="grocery-item${item.is_collected ? " is-collected" : ""}">
@@ -1685,6 +1704,115 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     showToast("Shopping budget saved.");
   }
 
+  function ingredientLines(value) {
+    return String(value || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim().replace(/^[-•*]\s*/, "").trim())
+      .filter(Boolean);
+  }
+
+  function recipeIngredientEntries(recipe, options = {}) {
+    return ingredientLines(recipe?.ingredients).map((name) => ({
+      name,
+      recipe_id: recipe?.id || null,
+      meal_plan_week_start: options.mealPlanWeekStart || null
+    }));
+  }
+
+  function planGroceryIngredientAdditions(ingredientEntries, existingItems) {
+    const uncheckedNames = new Set(
+      existingItems
+        .filter((item) => !item.is_collected)
+        .map((item) => normalizeItemName(item.name))
+        .filter(Boolean)
+    );
+    const seenIngredients = new Set();
+    const additions = [];
+    let duplicateCount = 0;
+
+    for (const value of ingredientEntries) {
+      const entry = typeof value === "string" ? { name: value } : value;
+      const name = String(entry?.name || "").trim().slice(0, 120).trim();
+      const normalized = normalizeItemName(name);
+      if (!normalized || seenIngredients.has(normalized)) continue;
+      seenIngredients.add(normalized);
+      if (uncheckedNames.has(normalized)) {
+        duplicateCount += 1;
+        continue;
+      }
+      uncheckedNames.add(normalized);
+      additions.push({ ...entry, name });
+    }
+
+    return {
+      additions,
+      duplicateCount,
+      ingredientCount: seenIngredients.size
+    };
+  }
+
+  async function addIngredientsToGroceryList(ingredientEntries, { operation = "ingredient insert" } = {}) {
+    if (blockTutorialProductionWrite(operation)) {
+      return {
+        addedCount: 0,
+        duplicateCount: 0,
+        ingredientCount: 0,
+        error: new Error("Production write blocked in Practice Mode.")
+      };
+    }
+
+    const { data: uncheckedItems, error: existingError } = await state.client
+      .from("grocery_items")
+      .select("name, is_collected")
+      .eq("household_id", state.household.id)
+      .eq("is_collected", false);
+    if (existingError) {
+      return {
+        addedCount: 0,
+        duplicateCount: 0,
+        ingredientCount: 0,
+        error: existingError
+      };
+    }
+
+    const plan = planGroceryIngredientAdditions(ingredientEntries, uncheckedItems || []);
+    if (!plan.additions.length) {
+      return { ...plan, addedCount: 0, error: null };
+    }
+
+    const rows = plan.additions.map((entry) => {
+      const row = {
+        household_id: state.household.id,
+        created_by: state.user.id,
+        name: entry.name,
+        category: "food",
+        source: "recipe"
+      };
+      if (entry.recipe_id) row.recipe_id = entry.recipe_id;
+      if (entry.meal_plan_week_start) row.meal_plan_week_start = entry.meal_plan_week_start;
+      return row;
+    });
+    const { error } = await runProductionMutation(operation, () => state.client.from("grocery_items").insert(rows));
+    if (error) return { ...plan, addedCount: 0, error };
+
+    await loadGroceryItems();
+    renderGroceryList();
+    renderGrocerySummary();
+    return { ...plan, addedCount: rows.length, error: null };
+  }
+
+  function showRecipeIngredientImportResult({ addedCount, duplicateCount }) {
+    if (!addedCount) {
+      showToast("These ingredients are already on your grocery list.");
+      return;
+    }
+    if (duplicateCount) {
+      showToast(`${addedCount} ingredient${addedCount === 1 ? "" : "s"} added. ${duplicateCount} ${duplicateCount === 1 ? "was" : "were"} already on your list.`);
+      return;
+    }
+    showToast(`${addedCount} ingredient${addedCount === 1 ? "" : "s"} added to Grocery List.`);
+  }
+
   async function addPlanIngredientsToGrocery() {
     if (blockTutorialProductionWrite("meal ingredient import")) return;
     const button = $("#add-plan-ingredients");
@@ -1696,31 +1824,31 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       .eq("household_id", state.household.id)
       .eq("week_start", state.currentWeekStart);
     if (planError) { setBusy(button, false); return showToast(planError.message, true); }
-    const existing = new Set(state.groceryItems.filter((item) => !item.is_collected).map((item) => normalizeItemName(item.name)));
-    const additions = [];
+
+    const ingredientEntries = [];
     for (const row of planRows || []) {
       if (row.plan_type === "eat_out" || !row.recipe_id) continue;
       const recipe = Array.isArray(row.recipes) ? row.recipes[0] : row.recipes;
-      const lines = String(recipe?.ingredients || "").split(/\r?\n/).map((line) => line.trim().replace(/^[-•*]\s*/, "")).filter(Boolean);
-      for (const line of lines) {
-        const normalized = normalizeItemName(line);
-        if (!normalized || existing.has(normalized)) continue;
-        existing.add(normalized);
-        additions.push({ household_id: state.household.id, created_by: state.user.id, name: line.slice(0, 120), category: "food", source: "recipe", recipe_id: row.recipe_id, meal_plan_week_start: state.currentWeekStart });
-      }
+      ingredientEntries.push(...recipeIngredientEntries(
+        { ...recipe, id: row.recipe_id },
+        { mealPlanWeekStart: state.currentWeekStart }
+      ));
     }
-    if (!additions.length) {
-      setBusy(button, false);
+
+    const result = await addIngredientsToGroceryList(ingredientEntries, {
+      operation: "meal ingredient insert"
+    });
+    setBusy(button, false);
+    if (result.error) return showToast(result.error.message, true);
+    if (!result.addedCount) {
       setMessage("ingredient-import-message", "No new ingredients were found. Add ingredient lines to your recipes first.");
       return;
     }
-    const { error } = await runProductionMutation("meal ingredient insert", () => state.client.from("grocery_items").insert(additions));
-    setBusy(button, false);
-    if (error) return showToast(error.message, true);
-    await loadGroceryItems();
-    renderGroceryList();
-    renderGrocerySummary();
-    setMessage("ingredient-import-message", `${additions.length} ingredient${additions.length === 1 ? "" : "s"} added.`, true);
+
+    const duplicateText = result.duplicateCount
+      ? ` ${result.duplicateCount} ${result.duplicateCount === 1 ? "was" : "were"} already on your list.`
+      : "";
+    setMessage("ingredient-import-message", `${result.addedCount} ingredient${result.addedCount === 1 ? "" : "s"} added.${duplicateText}`, true);
   }
 
   async function clearCollectedGroceryItems() {
@@ -1963,8 +2091,8 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
       {
         page: "recipes",
         title: "Send ingredients to groceries.",
-        copy: "<p>Press <strong>Add Ingredients to Grocery List</strong> on Taco Night. Its four practice ingredients will be added without contacting Supabase.</p>",
-        mobileCopy: "<p>Tap <strong>Add Ingredients to Grocery List</strong> on Taco Night.</p>",
+        copy: "<p>Press <strong>Add Ingredients</strong> on Taco Night. Its four practice ingredients will be added without contacting Supabase.</p>",
+        mobileCopy: "<p>Tap <strong>Add Ingredients</strong> on Taco Night.</p>",
         target: "[data-tutorial-target='recipe-ingredients-import']",
         interactive: true
       },
@@ -2181,15 +2309,15 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
 
   function addTutorialRecipeIngredients(recipe) {
     const estimates = { "Tortillas": 3.5, "Ground Beef": 8, "Cheese": 4.25, "Lettuce": 2 };
-    const existingNames = new Set(tutorialState.groceryItems.map((item) => normalizeItemName(item.name)));
-    const additions = recipe.ingredients.split(/\r?\n/).map((name) => name.trim()).filter(Boolean).filter((name) => !existingNames.has(normalizeItemName(name))).map((name, index) => ({
+    const plan = planGroceryIngredientAdditions(recipeIngredientEntries(recipe), tutorialState.groceryItems);
+    const additions = plan.additions.map((entry, index) => ({
       id: `tutorial-grocery-recipe-${index}`,
       household_id: "tutorial",
       created_by: state.user.id,
-      name,
+      name: entry.name,
       category: "food",
       quantity: null,
-      estimated_price: estimates[name] ?? null,
+      estimated_price: estimates[entry.name] ?? null,
       actual_price: null,
       is_collected: false,
       is_sale: false,
@@ -2201,7 +2329,7 @@ ${escapeHTML(recipe.instructions.trim())}` : ""
     tutorialState.completedSteps.add(5);
     renderGroceryList();
     renderGrocerySummary();
-    showToast("Four practice ingredients added.");
+    showToast(`${additions.length} practice ingredient${additions.length === 1 ? "" : "s"} added.`);
     window.setTimeout(() => showTutorialStep(6), 450);
   }
 

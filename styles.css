@@ -977,7 +977,25 @@ textarea {
 .recipe-card.is-disabled .recipe-details { opacity: .66; }
 .recipe-title-wrap { min-width: 0; }
 .recipe-title-wrap h3 { overflow-wrap: anywhere; }
-.recipe-card-footer { display: flex; align-items: center; margin-top: .8rem; }
+.recipe-card-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .6rem;
+  min-width: 0;
+  margin-top: .8rem;
+}
+.recipe-ingredient-button {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex: 1 1 100%;
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  overflow-wrap: anywhere;
+}
+.recipe-ingredient-button:hover { background: var(--primary); color: var(--primary-contrast); }
 
 .meal-toggle-button {
   max-width: 100%;
@@ -1046,6 +1064,7 @@ textarea {
   .recipe-card-top { flex-wrap: wrap; }
   .recipe-card-top .item-actions { width: 100%; justify-content: flex-start; }
   .meal-toggle-button:not(.compact) { width: 100%; justify-content: flex-start; }
+  .recipe-ingredient-button { min-height: 46px; }
   .meal-pool-item { align-items: flex-start; }
 }
 
